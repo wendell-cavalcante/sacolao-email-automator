@@ -1,29 +1,26 @@
-/* =========================================================
-   SACOLÃO — Automatizador de e-mail
-   Lógica: tema, seleção de loja, saudação automática,
-   anexos e abertura do Gmail já preenchido.
-   ========================================================= */
-
 (() => {
   "use strict";
 
   /* ---------- ELEMENTOS ---------- */
   const html          = document.documentElement;
-  const themeToggle    = document.getElementById("theme-toggle");
-  const storeGrid      = document.getElementById("store-grid");
-  const storeHint      = document.getElementById("store-hint");
-  const toInput        = document.getElementById("to-input");
-  const subjectInput   = document.getElementById("subject-input");
-  const bodyInput      = document.getElementById("body-input");
-  const dropzone       = document.getElementById("dropzone");
-  const fileInput      = document.getElementById("file-input");
-  const fileListEl     = document.getElementById("file-list");
-  const sendButton     = document.getElementById("send-button");
-  const toastEl        = document.getElementById("toast");
+  const themeToggle   = document.getElementById("theme-toggle");
+  const authButton    = document.getElementById("auth-button");
+  const storeGrid     = document.getElementById("store-grid");
+  const storeHint     = document.getElementById("store-hint");
+  const toInput       = document.getElementById("to-input");
+  const subjectInput  = document.getElementById("subject-input");
+  const bodyInput     = document.getElementById("body-input");
+  const dropzone      = document.getElementById("dropzone");
+  const fileInput     = document.getElementById("file-input");
+  const fileListEl    = document.getElementById("file-list");
+  const sendButton    = document.getElementById("send-button");
+  const toastEl       = document.getElementById("toast");
 
   let selectedStore = null;
   let attachedFiles = [];
   let toastTimer = null;
+  let tokenClient = null;
+  let accessToken = null;
 
   /* ---------- TEMA (claro/escuro) ---------- */
   function applyTheme(theme){
@@ -44,6 +41,39 @@
   });
 
   initTheme();
+
+  /* ---------- GOOGLE OAUTH2 (GIS) ---------- */
+  function initGoogleAuth() {
+    if (typeof google === "undefined" || !google.accounts) {
+      setTimeout(initGoogleAuth, 300);
+      return;
+    }
+
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: typeof GOOGLE_CLIENT_ID !== "undefined" ? GOOGLE_CLIENT_ID : "",
+      scope: "https://www.googleapis.com/auth/gmail.send",
+      callback: (tokenResponse) => {
+        if (tokenResponse.error) {
+          showToast("Erro na autenticação: " + tokenResponse.error, true);
+          return;
+        }
+        accessToken = tokenResponse.access_token;
+        authButton.textContent = "✓ Conectado";
+        authButton.style.borderColor = "var(--leaf)";
+        showToast("Conta Google conectada com sucesso!");
+      },
+    });
+  }
+
+  authButton.addEventListener("click", () => {
+    if (!tokenClient) {
+      showToast("Carregando autenticação do Google, aguarde...", true);
+      return;
+    }
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  });
+
+  window.addEventListener("load", initGoogleAuth);
 
   /* ---------- SAUDAÇÃO AUTOMÁTICA ---------- */
   function getGreeting(){
@@ -79,7 +109,6 @@
       ? `Destinatário definido: ${name}.`
       : `Cadastre o e-mail da loja "${name}" em js/config.js.`;
 
-    // sugestão de assunto só se o campo ainda estiver vazio
     if (!subjectInput.value.trim()){
       const today = new Date().toLocaleDateString("pt-BR");
       subjectInput.value = `Notas Fiscais ${today} — ${name}`;
@@ -165,38 +194,103 @@
     toastEl.classList.toggle("is-error", isError);
     toastEl.classList.add("is-visible");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => toastEl.classList.remove("is-visible"), 4200);
+    toastTimer = setTimeout(() => toastEl.classList.remove("is-visible"), 4500);
   }
 
-  /* ---------- ENVIO (abre o Gmail já preenchido) ---------- */
-  function buildGmailUrl(){
-    const params = new URLSearchParams({
-      view: "cm",
-      fs: "1",
-      to: toInput.value.trim(),
-      su: subjectInput.value.trim(),
-      body: bodyInput.value,
+  /* ---------- BUILD MIME & ENVIO VIA GMAIL API ---------- */
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result.split(',')[1]);
+      reader.onerror = error => reject(error);
     });
-    return `https://mail.google.com/mail/?${params.toString()}`;
   }
 
-  sendButton.addEventListener("click", () => {
+  async function buildRawEmail() {
+    const boundary = "boundary_" + Math.random().toString(36).substring(2);
+    const to = toInput.value.trim();
+    const subject = subjectInput.value.trim();
+    const body = bodyInput.value;
+
+    let emailParts = [
+      `To: ${to}`,
+      `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/plain; charset="UTF-8"',
+      'Content-Transfer-Encoding: 8bit',
+      '',
+      body,
+      ''
+    ];
+
+    for (const file of attachedFiles) {
+      const base64Data = await fileToBase64(file);
+      emailParts.push(
+        `--${boundary}`,
+        `Content-Type: ${file.type || 'application/octet-stream'}; name="${file.name}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-Disposition: attachment; filename="${file.name}"`,
+        '',
+        base64Data,
+        ''
+      );
+    }
+
+    emailParts.push(`--${boundary}--`);
+
+    const rawMessage = emailParts.join('\r\n');
+    return btoa(unescape(encodeURIComponent(rawMessage)))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
+
+  sendButton.addEventListener("click", async () => {
     if (sendButton.disabled) return;
 
+    if (!accessToken) {
+      showToast("Conecte sua conta Google primeiro clicando no botão acima.", true);
+      if (tokenClient) tokenClient.requestAccessToken();
+      return;
+    }
+
     sendButton.classList.add("is-loading");
+    sendButton.disabled = true;
 
-    setTimeout(() => {
-      window.open(buildGmailUrl(), "_blank", "noopener");
-      sendButton.classList.remove("is-loading");
+    try {
+      const raw = await buildRawEmail();
 
-      if (attachedFiles.length){
-        showToast(`Gmail aberto! Arraste os ${attachedFiles.length} arquivo(s) selecionado(s) para dentro do e-mail — o navegador não permite anexar automaticamente por segurança.`);
-      } else {
-        showToast("Gmail aberto com o destinatário, assunto e mensagem preenchidos.");
+      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ raw })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error?.message || "Falha ao enviar e-mail.");
       }
-    }, 450);
+
+      showToast(`E-mail com ${attachedFiles.length} anexo(s) enviado com sucesso!`);
+      
+      // Limpa anexos após envio bem sucedido
+      attachedFiles = [];
+      renderFileList();
+    } catch (error) {
+      console.error(error);
+      showToast(`Erro: ${error.message}`, true);
+    } finally {
+      sendButton.classList.remove("is-loading");
+      validateForm();
+    }
   });
 
-  /* ---------- INIT ---------- */
   validateForm();
 })();

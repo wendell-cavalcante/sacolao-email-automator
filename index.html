@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
+<!-- SDK do Google Identity Services -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
 
@@ -27,14 +29,20 @@
       </div>
     </div>
 
-    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro">
-      <span class="theme-toggle-track">
-        <span class="theme-toggle-thumb">
-          <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="4.9" y1="4.9" x2="6.6" y2="6.6"/><line x1="17.4" y1="17.4" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.6" y2="17.4"/><line x1="17.4" y1="6.6" x2="19.1" y2="4.9"/></g></svg>
-          <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <button id="auth-button" class="theme-toggle-track" style="width:auto; padding:6px 12px; cursor:pointer; color:var(--text); font-size:0.78rem; font-weight:600;" type="button">
+        Conectar Google
+      </button>
+
+      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro">
+        <span class="theme-toggle-track">
+          <span class="theme-toggle-thumb">
+            <svg class="icon icon-sun" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.8"/><g stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="2.5" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="21.5"/><line x1="2.5" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="21.5" y2="12"/><line x1="4.9" y1="4.9" x2="6.6" y2="6.6"/><line x1="17.4" y1="17.4" x2="19.1" y2="19.1"/><line x1="4.9" y1="19.1" x2="6.6" y2="17.4"/><line x1="17.4" y1="6.6" x2="19.1" y2="4.9"/></g></svg>
+            <svg class="icon icon-moon" viewBox="0 0 24 24" fill="none"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a6.6 6.6 0 0 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          </span>
         </span>
-      </span>
-    </button>
+      </button>
+    </div>
   </header>
 
   <!-- CARD -->
@@ -73,7 +81,7 @@
         <span class="field-index">2</span>
         Destinatário
       </label>
-      <input type="email" id="to-input" class="text-input" placeholder="Selecione uma loja acima" readonly>
+      <input type="text" id="to-input" class="text-input" placeholder="Selecione uma loja acima" readonly>
     </div>
 
     <div class="field-block">
@@ -117,7 +125,7 @@
     <!-- AÇÃO -->
     <button type="button" class="send-button" id="send-button" disabled>
       <span class="send-ring" aria-hidden="true"></span>
-      <span class="send-label">Abrir no Gmail</span>
+      <span class="send-label">Enviar E-mail Direto</span>
       <svg class="send-icon" viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
 
