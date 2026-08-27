@@ -536,11 +536,6 @@ html[data-theme="light"] .icon-moon{ opacity:1; transform: scale(1) rotate(0); }
 }
 .reply-banner-close:hover{ color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 
-/* store chips desabilitados durante resposta */
-.store-grid[data-mode="reply"] .store-chip{
-  opacity:.5;
-  cursor:not-allowed;
-}
 
 /* ---------------- ACTION ROW (Responder + Enviar) ---------------- */
 .action-row{

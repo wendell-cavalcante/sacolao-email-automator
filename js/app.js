@@ -47,7 +47,7 @@
 
   let mode = "compose";      // "compose" | "reply"
   let replyContext = null;   // { threadId, messageId, to, subject }
-  let onAuthSuccess = null;  // callback executado assim que a autenticação for concluída
+  let onAuthSuccess = null;
 
   /* ---------- TEMA (claro/escuro) ---------- */
   function applyTheme(theme){
@@ -69,7 +69,40 @@
 
   initTheme();
 
-  /* ---------- GOOGLE OAUTH2 (GIS) ---------- */
+  /* ---------- GOOGLE OAUTH2 & SESSÃO PERSISTENTE ---------- */
+  function setSessionToken(token, expiresInSeconds = 3500) {
+    accessToken = token;
+    const expiresAt = Date.now() + expiresInSeconds * 1000;
+    localStorage.setItem("sacolao_access_token", token);
+    localStorage.setItem("sacolao_token_expires", expiresAt.toString());
+
+    authButton.textContent = "✓ Conectado";
+    authButton.style.borderColor = "var(--leaf)";
+  }
+
+  function clearSessionToken() {
+    accessToken = null;
+    localStorage.removeItem("sacolao_access_token");
+    localStorage.removeItem("sacolao_token_expires");
+
+    authButton.textContent = "Login";
+    authButton.style.borderColor = "";
+  }
+
+  function restoreSession() {
+    const savedToken = localStorage.getItem("sacolao_access_token");
+    const expiresAt = Number(localStorage.getItem("sacolao_token_expires") || 0);
+
+    if (savedToken && Date.now() < expiresAt - 60000) {
+      accessToken = savedToken;
+      authButton.textContent = "✓ Conectado";
+      authButton.style.borderColor = "var(--leaf)";
+      return true;
+    }
+    clearSessionToken();
+    return false;
+  }
+
   function initGoogleAuth() {
     if (typeof google === "undefined" || !google.accounts) {
       setTimeout(initGoogleAuth, 300);
@@ -78,17 +111,14 @@
 
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: typeof GOOGLE_CLIENT_ID !== "undefined" ? GOOGLE_CLIENT_ID : "",
-      // gmail.send  → enviar e-mails / gmail.readonly → listar a caixa de entrada para responder
       scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly",
       callback: (tokenResponse) => {
         if (tokenResponse.error) {
           showToast("Erro na autenticação: " + tokenResponse.error, true);
           return;
         }
-        accessToken = tokenResponse.access_token;
-        authButton.textContent = "✓ Conectado";
-        authButton.style.borderColor = "var(--leaf)";
-        showToast("Conta Google conectada com sucesso!");
+        setSessionToken(tokenResponse.access_token, tokenResponse.expires_in || 3599);
+        showToast("Conta Google conectada!");
 
         if (onAuthSuccess) {
           const cb = onAuthSuccess;
@@ -97,6 +127,13 @@
         }
       },
     });
+
+    const restored = restoreSession();
+    if (!restored && tokenClient) {
+      try {
+        tokenClient.requestAccessToken({ prompt: "none" });
+      } catch (e) {}
+    }
   }
 
   authButton.addEventListener("click", () => {
@@ -109,8 +146,6 @@
 
   window.addEventListener("load", initGoogleAuth);
 
-  /* Garante que existe um token válido antes de uma ação que precisa da API.
-     Se não houver login, dispara o fluxo do Google e só continua depois. */
   function ensureAuth(){
     if (accessToken) return Promise.resolve(true);
     return new Promise((resolve) => {
@@ -120,11 +155,10 @@
         return;
       }
       onAuthSuccess = () => resolve(true);
-      tokenClient.requestAccessToken();
+      tokenClient.requestAccessToken({ prompt: "" });
     });
   }
 
-  /* Fetch autenticado na Gmail API, com tratamento de token expirado */
   async function gmailApiFetch(url, options = {}){
     const response = await fetch(url, {
       ...options,
@@ -135,10 +169,8 @@
     });
 
     if (response.status === 401){
-      accessToken = null;
-      authButton.textContent = "Login Google";
-      authButton.style.borderColor = "";
-      throw new Error("Sessão do Google expirada. Clique em Login Google e tente novamente.");
+      clearSessionToken();
+      throw new Error("Sessão do Google expirada. Clique em Login e tente novamente.");
     }
 
     if (!response.ok){
@@ -149,7 +181,7 @@
     return response.json();
   }
 
-  /* ---------- SAUDAÇÃO AUTOMÁTICA ---------- */
+  /* ---------- CORPO DO E-MAIL ---------- */
   function getGreeting(){
     const hour = new Date().getHours();
     if (hour < 12) return "Bom dia";
@@ -163,15 +195,10 @@
 
   bodyInput.value = buildDefaultBody();
 
-  /* ---------- SELEÇÃO DE LOJA ---------- */
+  /* ---------- SELEÇÃO DE LOJA (BOTÕES AUTOMÁTICOS) ---------- */
   storeGrid.addEventListener("click", (e) => {
     const chip = e.target.closest(".store-chip");
     if (!chip) return;
-
-    if (mode === "reply"){
-      showToast("Cancele a resposta atual para trocar de loja.", true);
-      return;
-    }
 
     const store = chip.dataset.store;
     selectedStore = store;
@@ -188,18 +215,10 @@
       ? `Destinatário definido: ${name}.`
       : `Cadastre o e-mail da loja "${name}" em js/config.js.`;
 
-    if (!subjectInput.value.trim()){
-      const today = new Date().toLocaleDateString("pt-BR");
-      subjectInput.value = `Notas Fiscais ${today} — ${name}`;
-    }
-
     validateForm();
   });
 
-  /* =========================================================
-     RESPONDER E-MAIL
-     ========================================================= */
-
+  /* ---------- RESPONDER E-MAIL ---------- */
   function formatEmailDate(internalDateMs, headerDateStr){
     const date = internalDateMs ? new Date(Number(internalDateMs)) : new Date(headerDateStr);
     if (isNaN(date.getTime())) return headerDateStr || "";
@@ -323,15 +342,11 @@
     mode = "reply";
     replyContext = ctx;
 
-    selectedStore = null;
-    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
-    storeGrid.dataset.mode = "reply";
-
     toInput.value = ctx.to;
-    subjectInput.value = /^re:/i.test(ctx.subject) ? ctx.subject : `Re: ${ctx.subject}`;
+    subjectInput.value = ""; // Deixa o campo assunto limpo
     bodyInput.value = buildDefaultBody();
 
-    replyBannerDetail.textContent = `Para ${ctx.fromName} — Assunto: ${ctx.subject}`;
+    replyBannerDetail.textContent = `Para ${ctx.fromName} — Conversa: ${ctx.subject}`;
     replyBanner.classList.add("is-visible");
 
     validateForm();
@@ -340,8 +355,10 @@
   function exitReplyMode(){
     mode = "compose";
     replyContext = null;
-    storeGrid.dataset.mode = "compose";
     replyBanner.classList.remove("is-visible");
+
+    selectedStore = null;
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
 
     toInput.value = "";
     subjectInput.value = "";
@@ -359,11 +376,7 @@
     await fetchInboxList();
   });
 
-  /* =========================================================
-     CONFIRMAÇÃO (modal genérico — reaproveitado para o aviso
-     de anexo errado e para a confirmação antes do envio)
-     ========================================================= */
-
+  /* ---------- CONFIRMAÇÃO MODAL ---------- */
   function showConfirm({ title, message, fileList = [], confirmText = "Sim", cancelText = "Cancelar", tone = "default" }){
     return new Promise((resolve) => {
       confirmTitle.textContent = title;
@@ -469,17 +482,16 @@
 
   /* ---------- VALIDAÇÃO ---------- */
   function validateForm(){
-    const ok = mode === "reply"
-      ? Boolean(toInput.value.trim() && subjectInput.value.trim())
-      : Boolean(selectedStore && toInput.value.trim() && subjectInput.value.trim());
+    const ok = Boolean(toInput.value.trim() && subjectInput.value.trim());
     sendButton.disabled = !ok;
   }
 
   subjectInput.addEventListener("input", validateForm);
+  toInput.addEventListener("input", validateForm);
 
   /* ---------- DETECTOR DE ANEXO ERRADO ---------- */
   function findMismatchedFiles(){
-    if (mode === "reply" || !selectedStore) return [];
+    if (!selectedStore) return [];
     const keywords = (typeof STORE_KEYWORDS !== "undefined" && STORE_KEYWORDS[selectedStore]) || [];
     if (!keywords.length) return [];
 
@@ -489,7 +501,7 @@
     });
   }
 
-  /* ---------- TOAST ---------- */
+  /* ---------- NOTIFICAÇÕES ---------- */
   function showToast(message, isError = false){
     toastEl.textContent = message;
     toastEl.classList.toggle("is-error", isError);
@@ -498,7 +510,6 @@
     toastTimer = setTimeout(() => toastEl.classList.remove("is-visible"), 4500);
   }
 
-  /* ---------- POP-UP VERDE DE SUCESSO (canto inferior direito) ---------- */
   function showSuccessToast(message){
     successToastText.textContent = message;
     successToast.classList.add("is-visible");
@@ -506,7 +517,7 @@
     successToastTimer = setTimeout(() => successToast.classList.remove("is-visible"), 5000);
   }
 
-  /* ---------- BUILD MIME & ENVIO VIA GMAIL API ---------- */
+  /* ---------- ENVIO VIA GMAIL API ---------- */
   function fileToBase64(file) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -527,7 +538,6 @@
       `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
     ];
 
-    // Cabeçalhos de referência: fazem o Gmail agrupar a resposta na mesma conversa
     if (mode === "reply" && replyContext?.messageId){
       emailParts.push(`In-Reply-To: ${replyContext.messageId}`);
       emailParts.push(`References: ${replyContext.messageId}`);
@@ -573,13 +583,13 @@
     const ok = await ensureAuth();
     if (!ok) return;
 
-    // 1) Detector de anexo errado (ex: enviando pra Lapa um arquivo sem "lapa" no nome)
+    // 1) Detector de anexo divergente
     const mismatched = findMismatchedFiles();
-    if (mismatched.length){
+    if (mismatched.length > 0){
       const storeLabel = (typeof STORE_NAMES !== "undefined" && STORE_NAMES[selectedStore]) || selectedStore;
       const proceedAnyway = await showConfirm({
-        title: "Confira os anexos",
-        message: `${mismatched.length} arquivo(s) não têm o nome da loja "${storeLabel}". Confira se são mesmo os anexos certos antes de enviar.`,
+        title: "Atenção aos Anexos!",
+        message: `${mismatched.length} arquivo(s) não contêm o nome da loja "${storeLabel}". Deseja enviar assim mesmo?`,
         fileList: mismatched.map(f => f.name),
         confirmText: "Enviar mesmo assim",
         cancelText: "Revisar anexos",
@@ -588,7 +598,7 @@
       if (!proceedAnyway) return;
     }
 
-    // 2) Confirmação final antes de enviar
+    // 2) Confirmação final
     const confirmedSend = await showConfirm({
       title: mode === "reply" ? "Confirmar resposta" : "Confirmar envio",
       message: `Enviar este e-mail para ${toInput.value.trim()}?`,
@@ -627,7 +637,6 @@
           : "E-mail enviado com sucesso!"
       );
 
-      // Limpa anexos e, se era resposta, volta pro modo normal
       attachedFiles = [];
       renderFileList();
       if (mode === "reply") exitReplyMode();
