@@ -16,11 +16,38 @@
   const sendButton    = document.getElementById("send-button");
   const toastEl       = document.getElementById("toast");
 
+  const replyOpenButton   = document.getElementById("reply-open-button");
+  const replyBanner       = document.getElementById("reply-banner");
+  const replyBannerDetail = document.getElementById("reply-banner-detail");
+  const replyCancelBtn    = document.getElementById("reply-cancel");
+
+  const inboxOverlay = document.getElementById("inbox-overlay");
+  const inboxClose   = document.getElementById("inbox-close");
+  const inboxLoading = document.getElementById("inbox-loading");
+  const inboxEmpty   = document.getElementById("inbox-empty");
+  const inboxList    = document.getElementById("inbox-list");
+
+  const confirmOverlay  = document.getElementById("confirm-overlay");
+  const confirmBox      = document.getElementById("confirm-box");
+  const confirmTitle    = document.getElementById("confirm-title");
+  const confirmMessage  = document.getElementById("confirm-message");
+  const confirmFileList = document.getElementById("confirm-file-list");
+  const confirmOkBtn    = document.getElementById("confirm-ok");
+  const confirmCancelBtn= document.getElementById("confirm-cancel");
+
+  const successToast     = document.getElementById("success-toast");
+  const successToastText = document.getElementById("success-toast-text");
+
   let selectedStore = null;
   let attachedFiles = [];
   let toastTimer = null;
+  let successToastTimer = null;
   let tokenClient = null;
   let accessToken = null;
+
+  let mode = "compose";      // "compose" | "reply"
+  let replyContext = null;   // { threadId, messageId, to, subject }
+  let onAuthSuccess = null;  // callback executado assim que a autenticação for concluída
 
   /* ---------- TEMA (claro/escuro) ---------- */
   function applyTheme(theme){
@@ -51,7 +78,8 @@
 
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: typeof GOOGLE_CLIENT_ID !== "undefined" ? GOOGLE_CLIENT_ID : "",
-      scope: "https://www.googleapis.com/auth/gmail.send",
+      // gmail.send  → enviar e-mails / gmail.readonly → listar a caixa de entrada para responder
+      scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly",
       callback: (tokenResponse) => {
         if (tokenResponse.error) {
           showToast("Erro na autenticação: " + tokenResponse.error, true);
@@ -61,6 +89,12 @@
         authButton.textContent = "✓ Conectado";
         authButton.style.borderColor = "var(--leaf)";
         showToast("Conta Google conectada com sucesso!");
+
+        if (onAuthSuccess) {
+          const cb = onAuthSuccess;
+          onAuthSuccess = null;
+          cb();
+        }
       },
     });
   }
@@ -74,6 +108,46 @@
   });
 
   window.addEventListener("load", initGoogleAuth);
+
+  /* Garante que existe um token válido antes de uma ação que precisa da API.
+     Se não houver login, dispara o fluxo do Google e só continua depois. */
+  function ensureAuth(){
+    if (accessToken) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      if (!tokenClient) {
+        showToast("Carregando autenticação do Google, aguarde e tente de novo.", true);
+        resolve(false);
+        return;
+      }
+      onAuthSuccess = () => resolve(true);
+      tokenClient.requestAccessToken();
+    });
+  }
+
+  /* Fetch autenticado na Gmail API, com tratamento de token expirado */
+  async function gmailApiFetch(url, options = {}){
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        ...(options.headers || {}),
+      },
+    });
+
+    if (response.status === 401){
+      accessToken = null;
+      authButton.textContent = "Login Google";
+      authButton.style.borderColor = "";
+      throw new Error("Sessão do Google expirada. Clique em Login Google e tente novamente.");
+    }
+
+    if (!response.ok){
+      const errBody = await response.json().catch(() => ({}));
+      throw new Error(errBody.error?.message || `Erro ${response.status} na Gmail API.`);
+    }
+
+    return response.json();
+  }
 
   /* ---------- SAUDAÇÃO AUTOMÁTICA ---------- */
   function getGreeting(){
@@ -93,6 +167,11 @@
   storeGrid.addEventListener("click", (e) => {
     const chip = e.target.closest(".store-chip");
     if (!chip) return;
+
+    if (mode === "reply"){
+      showToast("Cancele a resposta atual para trocar de loja.", true);
+      return;
+    }
 
     const store = chip.dataset.store;
     selectedStore = store;
@@ -116,6 +195,214 @@
 
     validateForm();
   });
+
+  /* =========================================================
+     RESPONDER E-MAIL
+     ========================================================= */
+
+  function formatEmailDate(internalDateMs, headerDateStr){
+    const date = internalDateMs ? new Date(Number(internalDateMs)) : new Date(headerDateStr);
+    if (isNaN(date.getTime())) return headerDateStr || "";
+    return date.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function getHeader(headers, name){
+    const h = (headers || []).find(h => h.name.toLowerCase() === name.toLowerCase());
+    return h ? h.value : "";
+  }
+
+  function extractEmailAddress(fromHeader){
+    const match = fromHeader.match(/<([^>]+)>/);
+    return match ? match[1] : fromHeader.trim();
+  }
+
+  function extractDisplayName(fromHeader){
+    const match = fromHeader.match(/^"?([^"<]+)"?\s*</);
+    return match ? match[1].trim() : extractEmailAddress(fromHeader);
+  }
+
+  function openInboxModal(){
+    inboxOverlay.classList.add("is-visible");
+  }
+
+  function closeInboxModal(){
+    inboxOverlay.classList.remove("is-visible");
+  }
+
+  inboxClose.addEventListener("click", closeInboxModal);
+  inboxOverlay.addEventListener("click", (e) => {
+    if (e.target === inboxOverlay) closeInboxModal();
+  });
+
+  function buildMetadataUrl(id){
+    const params = new URLSearchParams({ format: "metadata" });
+    ["Subject", "From", "Date", "Message-Id"].forEach(h => params.append("metadataHeaders", h));
+    return `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?${params.toString()}`;
+  }
+
+  async function fetchInboxList(){
+    inboxLoading.hidden = false;
+    inboxEmpty.hidden = true;
+    inboxList.innerHTML = "";
+
+    try {
+      const listData = await gmailApiFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=INBOX"
+      );
+      const refs = listData.messages || [];
+
+      if (!refs.length){
+        inboxLoading.hidden = true;
+        inboxEmpty.hidden = false;
+        return;
+      }
+
+      const details = await Promise.all(
+        refs.map(ref => gmailApiFetch(buildMetadataUrl(ref.id)))
+      );
+
+      details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
+      renderInboxList(details);
+    } catch (error){
+      console.error(error);
+      showToast(`Não foi possível carregar a caixa de entrada: ${error.message}`, true);
+      closeInboxModal();
+    } finally {
+      inboxLoading.hidden = true;
+    }
+  }
+
+  function renderInboxList(messages){
+    inboxList.innerHTML = "";
+
+    messages.forEach(msg => {
+      const headers   = msg.payload?.headers || [];
+      const fromRaw   = getHeader(headers, "From");
+      const subject   = getHeader(headers, "Subject") || "(sem assunto)";
+      const messageId = getHeader(headers, "Message-Id");
+      const dateLabel = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
+      const fromName  = extractDisplayName(fromRaw);
+      const fromEmail = extractEmailAddress(fromRaw);
+
+      const li = document.createElement("li");
+      li.innerHTML = `
+        <button type="button" class="inbox-item">
+          <span class="inbox-item-top">
+            <span class="inbox-item-from">${fromName}</span>
+            <span class="inbox-item-date">${dateLabel}</span>
+          </span>
+          <span class="inbox-item-subject">${subject}</span>
+        </button>
+      `;
+
+      li.querySelector(".inbox-item").addEventListener("click", async () => {
+        const proceed = await showConfirm({
+          title: "Responder este e-mail?",
+          message: `De: ${fromName} <${fromEmail}>\nAssunto: ${subject}`,
+          confirmText: "Responder",
+          cancelText: "Voltar",
+        });
+
+        if (!proceed) return;
+
+        enterReplyMode({
+          threadId: msg.threadId,
+          messageId: messageId,
+          to: fromEmail,
+          fromName: fromName,
+          subject: subject,
+        });
+        closeInboxModal();
+      });
+
+      inboxList.appendChild(li);
+    });
+  }
+
+  function enterReplyMode(ctx){
+    mode = "reply";
+    replyContext = ctx;
+
+    selectedStore = null;
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
+    storeGrid.dataset.mode = "reply";
+
+    toInput.value = ctx.to;
+    subjectInput.value = /^re:/i.test(ctx.subject) ? ctx.subject : `Re: ${ctx.subject}`;
+    bodyInput.value = buildDefaultBody();
+
+    replyBannerDetail.textContent = `Para ${ctx.fromName} — Assunto: ${ctx.subject}`;
+    replyBanner.classList.add("is-visible");
+
+    validateForm();
+  }
+
+  function exitReplyMode(){
+    mode = "compose";
+    replyContext = null;
+    storeGrid.dataset.mode = "compose";
+    replyBanner.classList.remove("is-visible");
+
+    toInput.value = "";
+    subjectInput.value = "";
+    storeHint.textContent = "Selecione a loja para preencher o destinatário automaticamente.";
+
+    validateForm();
+  }
+
+  replyCancelBtn.addEventListener("click", exitReplyMode);
+
+  replyOpenButton.addEventListener("click", async () => {
+    const ok = await ensureAuth();
+    if (!ok) return;
+    openInboxModal();
+    await fetchInboxList();
+  });
+
+  /* =========================================================
+     CONFIRMAÇÃO (modal genérico — reaproveitado para o aviso
+     de anexo errado e para a confirmação antes do envio)
+     ========================================================= */
+
+  function showConfirm({ title, message, fileList = [], confirmText = "Sim", cancelText = "Cancelar", tone = "default" }){
+    return new Promise((resolve) => {
+      confirmTitle.textContent = title;
+      confirmMessage.textContent = message;
+      confirmOkBtn.textContent = confirmText;
+      confirmCancelBtn.textContent = cancelText;
+      confirmBox.classList.toggle("is-warning", tone === "warning");
+
+      confirmFileList.innerHTML = "";
+      if (fileList.length){
+        fileList.forEach(name => {
+          const chip = document.createElement("span");
+          chip.className = "confirm-file-chip";
+          chip.textContent = name;
+          confirmFileList.appendChild(chip);
+        });
+        confirmFileList.style.display = "flex";
+      } else {
+        confirmFileList.style.display = "none";
+      }
+
+      confirmOverlay.classList.add("is-visible");
+
+      function cleanup(result){
+        confirmOverlay.classList.remove("is-visible");
+        confirmOkBtn.removeEventListener("click", onOk);
+        confirmCancelBtn.removeEventListener("click", onCancel);
+        confirmOverlay.removeEventListener("click", onBackdrop);
+        resolve(result);
+      }
+      function onOk(){ cleanup(true); }
+      function onCancel(){ cleanup(false); }
+      function onBackdrop(e){ if (e.target === confirmOverlay) cleanup(false); }
+
+      confirmOkBtn.addEventListener("click", onOk);
+      confirmCancelBtn.addEventListener("click", onCancel);
+      confirmOverlay.addEventListener("click", onBackdrop);
+    });
+  }
 
   /* ---------- ANEXOS ---------- */
   function formatSize(bytes){
@@ -182,11 +469,25 @@
 
   /* ---------- VALIDAÇÃO ---------- */
   function validateForm(){
-    const ok = Boolean(selectedStore) && toInput.value.trim() && subjectInput.value.trim();
+    const ok = mode === "reply"
+      ? Boolean(toInput.value.trim() && subjectInput.value.trim())
+      : Boolean(selectedStore && toInput.value.trim() && subjectInput.value.trim());
     sendButton.disabled = !ok;
   }
 
   subjectInput.addEventListener("input", validateForm);
+
+  /* ---------- DETECTOR DE ANEXO ERRADO ---------- */
+  function findMismatchedFiles(){
+    if (mode === "reply" || !selectedStore) return [];
+    const keywords = (typeof STORE_KEYWORDS !== "undefined" && STORE_KEYWORDS[selectedStore]) || [];
+    if (!keywords.length) return [];
+
+    return attachedFiles.filter(file => {
+      const name = file.name.toLowerCase();
+      return !keywords.some(keyword => name.includes(keyword.toLowerCase()));
+    });
+  }
 
   /* ---------- TOAST ---------- */
   function showToast(message, isError = false){
@@ -195,6 +496,14 @@
     toastEl.classList.add("is-visible");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => toastEl.classList.remove("is-visible"), 4500);
+  }
+
+  /* ---------- POP-UP VERDE DE SUCESSO (canto inferior direito) ---------- */
+  function showSuccessToast(message){
+    successToastText.textContent = message;
+    successToast.classList.add("is-visible");
+    clearTimeout(successToastTimer);
+    successToastTimer = setTimeout(() => successToast.classList.remove("is-visible"), 5000);
   }
 
   /* ---------- BUILD MIME & ENVIO VIA GMAIL API ---------- */
@@ -216,6 +525,15 @@
     let emailParts = [
       `To: ${to}`,
       `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
+    ];
+
+    // Cabeçalhos de referência: fazem o Gmail agrupar a resposta na mesma conversa
+    if (mode === "reply" && replyContext?.messageId){
+      emailParts.push(`In-Reply-To: ${replyContext.messageId}`);
+      emailParts.push(`References: ${replyContext.messageId}`);
+    }
+
+    emailParts.push(
       'MIME-Version: 1.0',
       `Content-Type: multipart/mixed; boundary="${boundary}"`,
       '',
@@ -225,7 +543,7 @@
       '',
       body,
       ''
-    ];
+    );
 
     for (const file of attachedFiles) {
       const base64Data = await fileToBase64(file);
@@ -252,29 +570,42 @@
   sendButton.addEventListener("click", async () => {
     if (sendButton.disabled) return;
 
-    if (!accessToken) {
-      showToast("Conecte sua conta Google primeiro clicando no botão acima.", true);
-      if (tokenClient) tokenClient.requestAccessToken();
-      return;
+    const ok = await ensureAuth();
+    if (!ok) return;
+
+    // 1) Detector de anexo errado (ex: enviando pra Lapa um arquivo sem "lapa" no nome)
+    const mismatched = findMismatchedFiles();
+    if (mismatched.length){
+      const storeLabel = (typeof STORE_NAMES !== "undefined" && STORE_NAMES[selectedStore]) || selectedStore;
+      const proceedAnyway = await showConfirm({
+        title: "Confira os anexos",
+        message: `${mismatched.length} arquivo(s) não têm o nome da loja "${storeLabel}". Confira se são mesmo os anexos certos antes de enviar.`,
+        fileList: mismatched.map(f => f.name),
+        confirmText: "Enviar mesmo assim",
+        cancelText: "Revisar anexos",
+        tone: "warning",
+      });
+      if (!proceedAnyway) return;
     }
+
+    // 2) Confirmação final antes de enviar
+    const confirmedSend = await showConfirm({
+      title: mode === "reply" ? "Confirmar resposta" : "Confirmar envio",
+      message: `Enviar este e-mail para ${toInput.value.trim()}?`,
+      confirmText: "Enviar",
+      cancelText: "Cancelar",
+    });
+    if (!confirmedSend) return;
 
     sendButton.classList.add("is-loading");
     sendButton.disabled = true;
 
-    // Envia o e-mail via Gmail API
-
     try {
-
-      alert("Deseja enviar o e-mail com " + attachedFiles.length + " anexo(s)?");
-
-      if (!confirm("Deseja enviar o e-mail com " + attachedFiles.length + " anexo(s)?")) {
-        showToast("Envio de e-mail cancelado pelo usuário.", true);
-        return;
-      }
-      
-
-
       const raw = await buildRawEmail();
+      const payload = { raw };
+      if (mode === "reply" && replyContext?.threadId){
+        payload.threadId = replyContext.threadId;
+      }
 
       const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
         method: "POST",
@@ -282,7 +613,7 @@
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ raw })
+        body: JSON.stringify(payload)
       });
 
       if (!response.ok) {
@@ -290,11 +621,18 @@
         throw new Error(err.error?.message || "Falha ao enviar e-mail.");
       }
 
-      showToast(`E-mail com ${attachedFiles.length} anexo(s) enviado com sucesso!`);
-      
-      // Limpa anexos após envio bem sucedido
+      showSuccessToast(
+        attachedFiles.length
+          ? `E-mail enviado com ${attachedFiles.length} anexo(s)!`
+          : "E-mail enviado com sucesso!"
+      );
+
+      // Limpa anexos e, se era resposta, volta pro modo normal
       attachedFiles = [];
       renderFileList();
+      if (mode === "reply") exitReplyMode();
+      subjectInput.value = "";
+      bodyInput.value = buildDefaultBody();
     } catch (error) {
       console.error(error);
       showToast(`Erro: ${error.message}`, true);

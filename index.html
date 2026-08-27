@@ -48,13 +48,23 @@
   <!-- CARD -->
   <section class="card" id="compose-card">
 
+    <!-- AVISO DE MODO RESPOSTA -->
+    <div class="reply-banner" id="reply-banner">
+      <svg class="reply-banner-icon" viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h9a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div class="reply-banner-text">
+        <strong>Respondendo e-mail</strong>
+        <span id="reply-banner-detail"></span>
+      </div>
+      <button type="button" class="reply-banner-close" id="reply-cancel" aria-label="Cancelar resposta">✕</button>
+    </div>
+
     <!-- STEP 1: LOJA -->
     <div class="field-block">
       <label class="field-label">
         <span class="field-index">1</span>
         Selecione o destinatário (loja)
       </label>
-      <div class="store-grid" id="store-grid">
+      <div class="store-grid" id="store-grid" data-mode="compose">
         <button type="button" class="store-chip" data-store="lapa" style="--chip-color:#e8871e">
           <span class="chip-leaf"></span>
           <span class="chip-name">Lapa</span>
@@ -89,7 +99,7 @@
         <span class="field-index">3</span>
         Assunto
       </label>
-      <input type="text" id="subject-input" class="text-input" placeholder="Ex: NOTAS E CUSTOS LOJA - MERCEARIA">
+      <input type="text" id="subject-input" class="text-input" placeholder="Ex: Notas Fiscais 27/08 — Sacolão">
     </div>
 
     <!-- STEP 3: MENSAGEM -->
@@ -122,24 +132,62 @@
       <ul class="file-list" id="file-list"></ul>
     </div>
 
-    <!-- AÇÃO -->
-    <button type="button" class="send-button" id="send-button" disabled>
-      <span class="send-ring" aria-hidden="true"></span>
-      <span class="send-label">Enviar E-mail</span>
-      <svg class="send-icon" viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-    </button>
+    <!-- AÇÕES -->
+    <div class="action-row">
+      <button type="button" class="reply-open-button" id="reply-open-button">
+        <svg class="reply-open-icon" viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h9a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Responder
+      </button>
+
+      <button type="button" class="send-button" id="send-button" disabled>
+        <span class="send-ring" aria-hidden="true"></span>
+        <span class="send-label">Enviar</span>
+        <svg class="send-icon" viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
 
   </section>
 
   <footer class="app-footer">
-
-    
-    <span>By <a href="https://www.instagram.com/owende.ll?igsi=MXNpdGNqbjc5MmVoMw%3D%3D&utm_source=qr">@owende.ll</a> · Automatizador de e-mail</span>
+    <span>By <a href="https://www.instagram.com/owende.ll/" target="_blank" rel="noopener noreferrer">@owende.ll</a> · Automatizador de e-mail</span>
   </footer>
 
 </main>
 
 <div class="toast" id="toast"></div>
+
+<!-- POP-UP VERDE DE SUCESSO (canto inferior direito) -->
+<div class="success-toast" id="success-toast">
+  <svg class="success-toast-icon" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 9.5 17 19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  <span id="success-toast-text">E-mail enviado com sucesso!</span>
+</div>
+
+<!-- MODAL: CAIXA DE ENTRADA (para responder) -->
+<div class="modal-overlay" id="inbox-overlay">
+  <div class="modal-box modal-box-lg">
+    <div class="modal-header">
+      <h3>Escolha o e-mail para responder</h3>
+      <button type="button" class="modal-close" id="inbox-close" aria-label="Fechar">✕</button>
+    </div>
+    <p class="modal-subtitle">Mostrando os recebidos mais recentes da sua caixa de entrada do Gmail.</p>
+    <div class="inbox-loading" id="inbox-loading">Carregando e-mails…</div>
+    <div class="inbox-empty" id="inbox-empty" hidden>Nenhum e-mail encontrado na caixa de entrada.</div>
+    <ul class="inbox-list" id="inbox-list"></ul>
+  </div>
+</div>
+
+<!-- MODAL: CONFIRMAÇÃO (genérico — usado para aviso de anexo e confirmação de envio) -->
+<div class="modal-overlay" id="confirm-overlay">
+  <div class="modal-box modal-box-confirm" id="confirm-box">
+    <h3 id="confirm-title"></h3>
+    <p id="confirm-message"></p>
+    <div class="confirm-file-list" id="confirm-file-list"></div>
+    <div class="modal-actions">
+      <button type="button" class="modal-btn modal-btn-ghost" id="confirm-cancel"></button>
+      <button type="button" class="modal-btn modal-btn-primary" id="confirm-ok"></button>
+    </div>
+  </div>
+</div>
 
 <script src="js/config.js"></script>
 <script src="js/app.js"></script>
