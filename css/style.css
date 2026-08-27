@@ -263,6 +263,28 @@ html[data-theme="light"] .icon-moon{ opacity:1; transform: scale(1) rotate(0); }
   transition: transform .18s ease, border-color .25s ease, box-shadow .25s ease;
 }
 
+.nav-button{
+  background:var(--surface-2);
+  align-items:center;
+  border: 1.5px solid var(--border);
+  cursor:pointer;
+  display:flex;
+  position: relative;
+  align-items:center;
+  font-weight: 600;
+  gap:10px;
+  padding: 13px 14px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  cursor:pointer;
+  overflow:hidden;
+  transition: transform .18s ease, border-color .25s ease, box-shadow .25s ease;
+}
+
+.nav-icon{ width:18px; height:18px; color: var(--ring-gold); flex-shrink:0; }
+.nav-label{ font-family: var(--font-display); font-size:.92rem; }
+
+
 .store-chip::before{
   content:"";
   position:absolute;
