@@ -1,0 +1,41 @@
+/* ---------------- THEME TOGGLE ---------------- */
+.theme-toggle{
+  background:none;
+  border:none;
+  cursor:pointer;
+  padding:0;
+}
+
+.theme-toggle-track{
+  width: 58px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display:flex;
+  align-items:center;
+  padding: 3px;
+  transition: background .35s ease, border-color .35s ease;
+}
+
+.theme-toggle-thumb{
+  width: 24px; height:24px;
+  border-radius:50%;
+  background: var(--ring-gold);
+  display:flex; align-items:center; justify-content:center;
+  color:#1c2a1c;
+  transform: translateX(0);
+  transition: transform .35s cubic-bezier(.5,0,.2,1);
+  position:relative;
+}
+
+html[data-theme="light"] .theme-toggle-thumb{
+  transform: translateX(26px);
+}
+
+.theme-toggle .icon{ width:15px; height:15px; position:absolute; transition: opacity .25s ease, transform .25s ease; }
+.icon-sun{ opacity:1; }
+.icon-moon{ opacity:0; transform: scale(.6) rotate(-30deg); }
+html[data-theme="light"] .icon-sun{ opacity:0; transform: scale(.6) rotate(30deg); }
+html[data-theme="light"] .icon-moon{ opacity:1; transform: scale(1) rotate(0); }
+

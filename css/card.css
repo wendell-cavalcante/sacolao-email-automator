@@ -1,0 +1,52 @@
+/* ---------------- CARD ---------------- */
+.card{
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 26px 22px 24px;
+  box-shadow: var(--shadow-soft);
+  display:flex;
+  flex-direction:column;
+  gap: 22px;
+  transition: background .45s ease, border-color .45s ease;
+}
+
+.field-block{ display:flex; flex-direction:column; gap:10px; }
+
+.field-label{
+  display:flex; align-items:center; gap:9px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: .95rem;
+  color: var(--text);
+}
+
+.field-index{
+  width:20px; height:20px;
+  border-radius:50%;
+  background: var(--ring-gold);
+  color:#1c2a1c;
+  font-size:.72rem;
+  font-family: var(--font-body);
+  font-weight:700;
+  display:flex; align-items:center; justify-content:center;
+  flex-shrink:0;
+}
+
+.field-label-tag{
+  font-family: var(--font-body);
+  font-weight:500;
+  font-size:.68rem;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: auto;
+}
+
+.field-hint{
+  margin:0;
+  font-size:.78rem;
+  color: var(--text-faint);
+}
