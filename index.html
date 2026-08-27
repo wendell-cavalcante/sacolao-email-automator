@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sacolão · Automatizador de Notas</title>
+<title>Rede Sacolão · Envio de E-mails</title>
 <link rel="icon" href="img/logo.jfif" type="image/jpeg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -24,14 +24,14 @@
         <img src="img/logo.jfif" alt="Sacolão" class="brand-logo">
       </div>
       <div class="brand-text">
-        <h1>Sacolão</h1>
-        <p>Envio de notas &amp; custos</p>
+        <h1>Rede Sacolão</h1>
+        <p>Envio rápido de notas e custos</p>
       </div>
     </div>
 
     <div style="display:flex; align-items:center; gap:8px;">
       <button id="auth-button" class="theme-toggle-track" style="width:auto; padding:6px 12px; cursor:pointer; color:var(--text); font-size:0.78rem; font-weight:600;" type="button">
-        Conectar Google
+        Login Google
       </button>
 
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Alternar tema claro/escuro">
@@ -52,7 +52,7 @@
     <div class="field-block">
       <label class="field-label">
         <span class="field-index">1</span>
-        Para qual loja vai a nota?
+        Selecione o destinatário (loja)
       </label>
       <div class="store-grid" id="store-grid">
         <button type="button" class="store-chip" data-store="lapa" style="--chip-color:#e8871e">
@@ -125,14 +125,14 @@
     <!-- AÇÃO -->
     <button type="button" class="send-button" id="send-button" disabled>
       <span class="send-ring" aria-hidden="true"></span>
-      <span class="send-label">Enviar E-mail Direto</span>
+      <span class="send-label">Enviar E-mail</span>
       <svg class="send-icon" viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
 
   </section>
 
   <footer class="app-footer">
-    <span>Sacolão · Automatizador de e-mail</span>
+    <span>By @owende.ll · Automatizador de e-mail</span>
   </footer>
 
 </main>
