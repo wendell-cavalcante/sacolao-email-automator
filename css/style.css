@@ -491,3 +491,5 @@ html[data-theme="light"] .icon-moon{ opacity:1; transform: scale(1) rotate(0); }
   .store-grid{ grid-template-columns: 1fr 1fr; }
   .card{ padding: 20px 16px; }
 }
+
+

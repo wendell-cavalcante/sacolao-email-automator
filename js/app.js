@@ -261,7 +261,19 @@
     sendButton.classList.add("is-loading");
     sendButton.disabled = true;
 
+    // Envia o e-mail via Gmail API
+
     try {
+
+      alert("Deseja enviar o e-mail com " + attachedFiles.length + " anexo(s)?");
+
+      if (!confirm("Deseja enviar o e-mail com " + attachedFiles.length + " anexo(s)?")) {
+        showToast("Envio de e-mail cancelado pelo usuário.", true);
+        return;
+      }
+      
+
+
       const raw = await buildRawEmail();
 
       const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
