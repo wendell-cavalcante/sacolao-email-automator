@@ -1,0 +1,45 @@
+/* ---------------- HEADER ---------------- */
+.app-header{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.brand{ display:flex; align-items:center; gap:14px; }
+
+.brand-ring{
+  width: 52px; height:52px;
+  border-radius: 50%;
+  padding: 3px;
+  background: conic-gradient(var(--ring-gold), #f4c98a, var(--ring-gold));
+  display:flex; align-items:center; justify-content:center;
+  box-shadow: var(--shadow-soft);
+  animation: ring-spin-in .8s ease-out;
+}
+
+@keyframes ring-spin-in{
+  from{ transform: rotate(-40deg) scale(.85); opacity:0; }
+  to{ transform: rotate(0) scale(1); opacity:1; }
+}
+
+.brand-logo{
+  width:100%; height:100%;
+  border-radius:50%;
+  object-fit:cover;
+  background: var(--bg);
+}
+
+.brand-text h1{
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  margin: 0;
+  letter-spacing: .2px;
+}
+
+.brand-text p{
+  margin: 2px 0 0;
+  font-size: .8rem;
+  color: var(--text-muted);
+}
