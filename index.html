@@ -171,14 +171,23 @@
 
   </section>
 
-  <!-- ABA: CAIXA DE ENTRADA -->
+  <!-- ABA: CAIXA DE ENTRADA & RASCUNHOS -->
   <section class="card inbox-tab-card" id="inbox-tab-card" hidden>
     
-    <!-- LISTA DE E-MAILS -->
+    <!-- LISTA DE E-MAILS / RASCUNHOS -->
     <div id="inbox-list-view">
       <div class="inbox-tab-header">
         <div>
-          <h2 class="inbox-tab-title">Caixa de entrada</h2>
+          <!-- Seletor de visualização (Recebidos vs Rascunhos) -->
+          <div class="inbox-subnav">
+            <button type="button" class="inbox-subnav-btn is-active" id="subnav-inbox-btn">
+              Recebidos
+            </button>
+            <button type="button" class="inbox-subnav-btn" id="subnav-drafts-btn">
+              Rascunhos
+              <span class="drafts-badge" id="drafts-count-badge" hidden>0</span>
+            </button>
+          </div>
           <p class="inbox-tab-subtitle" id="inbox-tab-subtitle">E-mails recebidos recentemente</p>
         </div>
         <button type="button" class="inbox-refresh-button" id="inbox-tab-refresh" aria-label="Atualizar caixa de entrada">
@@ -191,7 +200,7 @@
       <ul class="inbox-tab-list" id="inbox-tab-list"></ul>
     </div>
 
-<!-- LEITOR DO E-MAIL SELECIONADO -->
+    <!-- LEITOR DO E-MAIL SELECIONADO -->
     <div id="inbox-read-view" class="inbox-reader" hidden>
       <div class="inbox-reader-top">
         <button type="button" class="inbox-reader-back" id="inbox-read-back">

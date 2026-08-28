@@ -39,6 +39,11 @@
   const inboxTabList     = document.getElementById("inbox-tab-list");
   const inboxTabSubtitle = document.getElementById("inbox-tab-subtitle");
 
+  // Elementos de Sub-navegação (Recebidos vs Rascunhos)
+  const subnavInboxBtn    = document.getElementById("subnav-inbox-btn");
+  const subnavDraftsBtn   = document.getElementById("subnav-drafts-btn");
+  const draftsCountBadge  = document.getElementById("drafts-count-badge");
+
   // Elementos da leitura de e-mail
   const inboxListView        = document.getElementById("inbox-list-view");
   const inboxReadView        = document.getElementById("inbox-read-view");
@@ -67,7 +72,7 @@
   const successToast     = document.getElementById("success-toast");
   const successToastText = document.getElementById("success-toast-text");
 
-  // Elementos da anulação de envio
+  // Anulação de envio
   const undoToast        = document.getElementById("undo-toast");
   const undoTimerEl      = document.getElementById("undo-timer");
   const undoSendBtn      = document.getElementById("undo-send-btn");
@@ -85,16 +90,24 @@
   let readingMailContext = null;
 
   let currentView = "compose";
+  let currentInboxSubTab = "inbox"; // "inbox" | "drafts"
+  let cachedInboxMessages = [];
+
   let seenMessageIds = null;
   let mailPollTimer = null;
   let mailToastTimer = null;
   let isFetchingInboxTab = false;
   const MAIL_POLL_INTERVAL_MS = 45000;
 
-  // Estado da fila de anulação
+  // Estado de anulação
   let pendingEmailPayload = null;
   let undoCountdownTimer = null;
   let undoSecondsRemaining = 10;
+
+  // Gerenciamento de Rascunhos Gmail
+  let currentGmailDraftId = null;
+  let autoSaveDraftTimeout = null;
+  let isSavingDraft = false;
 
   /* ---------- TEMA (claro/escuro) ---------- */
   function applyTheme(theme){
@@ -129,6 +142,8 @@
   }
 
   function showInboxView(){
+    syncCurrentDraftToGmail();
+
     currentView = "inbox";
     composeCard.hidden = true;
     composeCard.style.display = "none";
@@ -154,13 +169,44 @@
     showInboxView();
     const ok = await ensureAuth();
     if (!ok) return;
-    fetchInboxTabList();
+    if (currentInboxSubTab === "drafts") {
+      fetchDraftsTabList();
+    } else {
+      fetchInboxTabList();
+    }
   });
 
   inboxTabRefresh.addEventListener("click", async () => {
     const ok = await ensureAuth();
     if (!ok) return;
-    fetchInboxTabList();
+    if (currentInboxSubTab === "drafts") {
+      fetchDraftsTabList();
+    } else {
+      fetchInboxTabList();
+    }
+  });
+
+  /* Sub-navegação Caixa de Entrada vs Rascunhos */
+  subnavInboxBtn.addEventListener("click", async () => {
+    currentInboxSubTab = "inbox";
+    subnavInboxBtn.classList.add("is-active");
+    subnavDraftsBtn.classList.remove("is-active");
+    
+    if (cachedInboxMessages.length > 0) {
+      renderInboxTabList(cachedInboxMessages);
+      inboxTabSubtitle.textContent = `${cachedInboxMessages.length} e-mail(s) recebido(s) recentemente`;
+    } else {
+      const ok = await ensureAuth();
+      if (ok) fetchInboxTabList();
+    }
+  });
+
+  subnavDraftsBtn.addEventListener("click", async () => {
+    currentInboxSubTab = "drafts";
+    subnavDraftsBtn.classList.add("is-active");
+    subnavInboxBtn.classList.remove("is-active");
+    const ok = await ensureAuth();
+    if (ok) fetchDraftsTabList();
   });
 
   function clearInboxBadge(){
@@ -228,6 +274,7 @@
         setSessionToken(tokenResponse.access_token, tokenResponse.expires_in || 3599);
         showToast("Conta Google conectada!");
         startMailPolling();
+        updateDraftsBadge();
 
         if (onAuthSuccess) {
           const cb = onAuthSuccess;
@@ -244,6 +291,7 @@
       } catch (e) {}
     } else if (restored) {
       startMailPolling();
+      updateDraftsBadge();
     }
   }
 
@@ -289,7 +337,7 @@
       throw new Error(errBody.error?.message || `Erro ${response.status} na Gmail API.`);
     }
 
-    return response.json();
+    return response.status === 204 ? null : response.json();
   }
 
   /* ---------- LIDO / NÃO LIDO ---------- */
@@ -380,6 +428,216 @@
 
   bodyInput.value = buildDefaultBody();
 
+  /* ---------- RASCUNHOS DIRETAMENTE NO GMAIL API ---------- */
+  function isFormDirty(){
+    const to = toInput.value.trim();
+    const sub = subjectInput.value.trim();
+    const body = bodyInput.value.trim();
+    const defBody = buildDefaultBody().trim();
+
+    return Boolean(to || sub || (body && body !== defBody) || attachedFiles.length > 0);
+  }
+
+  async function updateDraftsBadge(){
+    if (!accessToken) return;
+    try {
+      const data = await gmailApiFetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=10");
+      const count = (data.drafts || []).length;
+      if (count > 0){
+        draftsCountBadge.textContent = String(count);
+        draftsCountBadge.hidden = false;
+      } else {
+        draftsCountBadge.hidden = true;
+      }
+    } catch (e){}
+  }
+
+  async function syncCurrentDraftToGmail(){
+    if (!accessToken || isSavingDraft) return;
+    if (!isFormDirty()) return;
+
+    isSavingDraft = true;
+    try {
+      const raw = await buildRawEmail({
+        to: toInput.value.trim(),
+        subject: subjectInput.value.trim(),
+        body: bodyInput.value,
+        files: attachedFiles,
+        mode: mode,
+        replyContext: replyContext
+      });
+
+      const messageObj = { raw };
+      if (mode === "reply" && replyContext?.threadId){
+        messageObj.threadId = replyContext.threadId;
+      }
+
+      if (currentGmailDraftId){
+        await gmailApiFetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${currentGmailDraftId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: messageObj })
+        });
+      } else {
+        const created = await gmailApiFetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: messageObj })
+        });
+        if (created && created.id){
+          currentGmailDraftId = created.id;
+        }
+      }
+      updateDraftsBadge();
+    } catch (err){
+      console.warn("Falha ao sincronizar rascunho no Gmail:", err.message);
+    } finally {
+      isSavingDraft = false;
+    }
+  }
+
+  async function deleteGmailDraft(draftId){
+    if (!accessToken) return;
+    try {
+      await gmailApiFetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${draftId}`, {
+        method: "DELETE"
+      });
+      if (currentGmailDraftId === draftId){
+        currentGmailDraftId = null;
+      }
+      updateDraftsBadge();
+      if (currentInboxSubTab === "drafts"){
+        fetchDraftsTabList();
+      }
+      showToast("Rascunho descartado.");
+    } catch (e){
+      showToast(`Erro ao excluir rascunho: ${e.message}`, true);
+    }
+  }
+
+  function scheduleAutoSaveDraft(){
+    clearTimeout(autoSaveDraftTimeout);
+    autoSaveDraftTimeout = setTimeout(() => {
+      syncCurrentDraftToGmail();
+    }, 2000);
+  }
+
+  async function fetchDraftsTabList(){
+    if (!accessToken) return;
+    inboxTabLoading.hidden = false;
+    inboxTabEmpty.hidden = true;
+    inboxTabRefresh.classList.add("is-spinning");
+
+    try {
+      const data = await gmailApiFetch("https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=20");
+      const drafts = data.drafts || [];
+
+      if (!drafts.length){
+        inboxTabList.innerHTML = "";
+        inboxTabLoading.hidden = true;
+        inboxTabEmpty.textContent = "Nenhum rascunho salvo no Gmail.";
+        inboxTabEmpty.hidden = false;
+        inboxTabSubtitle.textContent = "0 rascunho(s)";
+        draftsCountBadge.hidden = true;
+        return;
+      }
+
+      const draftDetails = await Promise.all(
+        drafts.map(d => gmailApiFetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${d.id}?format=full`))
+      );
+
+      draftDetails.sort((a, b) => Number(b.message.internalDate) - Number(a.message.internalDate));
+      draftsCountBadge.textContent = String(draftDetails.length);
+      draftsCountBadge.hidden = false;
+      renderDraftsTabList(draftDetails);
+    } catch (err){
+      console.error(err);
+      showToast(`Erro ao carregar rascunhos: ${err.message}`, true);
+    } finally {
+      inboxTabLoading.hidden = true;
+      inboxTabRefresh.classList.remove("is-spinning");
+    }
+  }
+
+  function loadGmailDraftIntoForm(draft){
+    currentGmailDraftId = draft.id;
+    const msg = draft.message;
+    const headers = msg?.payload?.headers || [];
+    
+    toInput.value = getHeader(headers, "To") || "";
+    subjectInput.value = getHeader(headers, "Subject") || "";
+    bodyInput.value = extractMessageBody(msg?.payload) || buildDefaultBody();
+    
+    // Reconhece a loja pelo e-mail
+    selectedStore = null;
+    if (typeof STORE_EMAILS !== "undefined") {
+      for (const [key, emails] of Object.entries(STORE_EMAILS)) {
+        if (emails.toLowerCase().includes(toInput.value.toLowerCase())) {
+          selectedStore = key;
+          break;
+        }
+      }
+    }
+
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c =>
+      c.classList.toggle("is-active", c.dataset.store === selectedStore)
+    );
+
+    showComposeView();
+    validateForm();
+    showToast("Rascunho aberto para edição.");
+  }
+
+  function renderDraftsTabList(drafts){
+    inboxTabList.innerHTML = "";
+    inboxTabSubtitle.textContent = `${drafts.length} rascunho(s) no Gmail`;
+
+    drafts.forEach(draft => {
+      const msg = draft.message;
+      const headers = msg?.payload?.headers || [];
+      const toVal = getHeader(headers, "To") || "(Sem destinatário)";
+      const subject = getHeader(headers, "Subject") || "(Rascunho sem assunto)";
+      const dateLabel = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
+      const attachments = extractAttachments(msg.payload);
+
+      const li = document.createElement("li");
+      li.className = "inbox-tab-item";
+
+      const filesLabel = attachments.length > 0 
+        ? `<div class="inbox-tab-attachments"><span class="inbox-attachment-chip">${attachmentIconSvg()}<span>${attachments.length} anexo(s)</span></span></div>`
+        : "";
+
+      li.innerHTML = `
+        <div class="inbox-tab-item-top">
+          <span class="inbox-tab-item-from"><span class="draft-tag">Rascunho</span>${toVal}</span>
+          <span class="inbox-tab-item-date">${dateLabel}</span>
+        </div>
+        <div class="inbox-tab-item-subject">${subject}</div>
+        ${filesLabel}
+        <div class="inbox-tab-item-actions">
+          <button type="button" class="btn-draft-delete" data-draft-id="${draft.id}">Descartar</button>
+          <button type="button" class="inbox-tab-reply-button">Editar</button>
+        </div>
+      `;
+
+      li.addEventListener("click", () => {
+        loadGmailDraftIntoForm(draft);
+      });
+
+      li.querySelector(".btn-draft-delete").addEventListener("click", (e) => {
+        e.stopPropagation();
+        deleteGmailDraft(draft.id);
+      });
+
+      li.querySelector(".inbox-tab-reply-button").addEventListener("click", (e) => {
+        e.stopPropagation();
+        loadGmailDraftIntoForm(draft);
+      });
+
+      inboxTabList.appendChild(li);
+    });
+  }
+
   /* ---------- SELEÇÃO DE LOJA ---------- */
   storeGrid.addEventListener("click", (e) => {
     const chip = e.target.closest(".store-chip");
@@ -401,6 +659,7 @@
       : `Cadastre o e-mail da loja "${name}" em js/config.js.`;
 
     validateForm();
+    scheduleAutoSaveDraft();
   });
 
   /* ---------- FORMATAÇÃO E HELPERS ---------- */
@@ -457,7 +716,7 @@
     }
 
     walk(payload);
-    return textBody || htmlBody || "(E-mail sem conteúdo de texto)";
+    return textBody || htmlBody || "";
   }
 
   function extractAttachments(payload){
@@ -529,8 +788,10 @@
       const refs = listData.messages || [];
 
       if (!refs.length){
+        cachedInboxMessages = [];
         inboxTabList.innerHTML = "";
         inboxTabLoading.hidden = true;
+        inboxTabEmpty.textContent = "Nenhum e-mail encontrado na caixa de entrada.";
         inboxTabEmpty.hidden = false;
         return;
       }
@@ -540,6 +801,7 @@
       );
 
       details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
+      cachedInboxMessages = details;
 
       if (seenMessageIds === null){
         seenMessageIds = new Set(details.map(d => d.id));
@@ -547,8 +809,10 @@
         details.forEach(d => seenMessageIds.add(d.id));
       }
 
-      renderInboxTabList(details);
-      inboxTabSubtitle.textContent = `${details.length} e-mail(s) recebido(s) recentemente`;
+      if (currentInboxSubTab === "inbox") {
+        renderInboxTabList(details);
+        inboxTabSubtitle.textContent = `${details.length} e-mail(s) recebido(s) recentemente`;
+      }
     } catch (error){
       console.error(error);
       showToast(`Não foi possível carregar a caixa de entrada: ${error.message}`, true);
@@ -595,7 +859,7 @@
     readSubject.textContent = subject;
     readFrom.textContent = `${fromName} <${fromEmail}>`;
     readDate.textContent = dateLabel;
-    readBody.textContent = bodyContent;
+    readBody.textContent = bodyContent || "(E-mail sem conteúdo de texto)";
 
     readAttachmentsList.innerHTML = "";
     if (attachments.length > 0) {
@@ -636,6 +900,7 @@
 
   function renderInboxTabList(messages){
     inboxTabList.innerHTML = "";
+    inboxTabEmpty.hidden = true;
 
     messages.forEach(msg => {
       const headers    = msg.payload?.headers || [];
@@ -832,7 +1097,7 @@
       }
       showMailToast(newRefs.length, latestDetail);
 
-      if (currentView === "inbox"){
+      if (currentView === "inbox" && currentInboxSubTab === "inbox"){
         fetchInboxTabList();
       }
     } catch (error){
@@ -954,6 +1219,7 @@
   function addFiles(fileArray){
     attachedFiles = attachedFiles.concat(fileArray);
     renderFileList();
+    scheduleAutoSaveDraft();
   }
 
   fileListEl.addEventListener("click", (e) => {
@@ -961,6 +1227,7 @@
     if (!btn) return;
     attachedFiles.splice(Number(btn.dataset.index), 1);
     renderFileList();
+    scheduleAutoSaveDraft();
   });
 
   dropzone.addEventListener("click", () => fileInput.click());
@@ -995,8 +1262,17 @@
     sendButton.disabled = !ok || Boolean(pendingEmailPayload);
   }
 
-  subjectInput.addEventListener("input", validateForm);
-  toInput.addEventListener("input", validateForm);
+  subjectInput.addEventListener("input", () => {
+    validateForm();
+    scheduleAutoSaveDraft();
+  });
+
+  toInput.addEventListener("input", () => {
+    validateForm();
+    scheduleAutoSaveDraft();
+  });
+
+  bodyInput.addEventListener("input", scheduleAutoSaveDraft);
 
   /* ---------- DETECTOR DE ANEXO ERRADO ---------- */
   function findMismatchedFiles(){
@@ -1038,14 +1314,13 @@
 
   async function buildRawEmail(savedData) {
     const boundary = "boundary_" + Math.random().toString(36).substring(2);
-    const to = savedData.to;
-    const subject = savedData.subject;
-    const body = savedData.body;
+    const to = savedData.to || "";
+    const subject = savedData.subject || "";
+    const body = savedData.body || "";
 
-    let emailParts = [
-      `To: ${to}`,
-      `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
-    ];
+    let emailParts = [];
+    if (to) emailParts.push(`To: ${to}`);
+    emailParts.push(`Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`);
 
     if (savedData.mode === "reply" && savedData.replyContext?.messageId){
       emailParts.push(`In-Reply-To: ${savedData.replyContext.messageId}`);
@@ -1064,7 +1339,7 @@
       ''
     );
 
-    for (const file of savedData.files) {
+    for (const file of (savedData.files || [])) {
       const base64Data = await fileToBase64(file);
       emailParts.push(
         `--${boundary}`,
@@ -1108,6 +1383,11 @@
         throw new Error(err.error?.message || "Falha ao enviar e-mail.");
       }
 
+      // Deleta o rascunho do Gmail se existia
+      if (dataToSend.draftId) {
+        deleteGmailDraft(dataToSend.draftId);
+      }
+
       showSuccessToast(
         dataToSend.files.length
           ? `E-mail enviado com ${dataToSend.files.length} anexo(s)!`
@@ -1131,12 +1411,10 @@
   undoSendBtn.addEventListener("click", () => {
     if (!pendingEmailPayload) return;
 
-    // Cancela o envio agendado
     hideUndoToast();
     const restored = pendingEmailPayload;
     pendingEmailPayload = null;
 
-    // Restaura os campos do formulário para edição
     toInput.value = restored.to;
     subjectInput.value = restored.subject;
     bodyInput.value = restored.body;
@@ -1144,6 +1422,7 @@
     selectedStore = restored.selectedStore;
     mode = restored.mode;
     replyContext = restored.replyContext;
+    currentGmailDraftId = restored.draftId;
 
     if (mode === "reply" && replyContext) {
       replyBannerDetail.textContent = `Para ${replyContext.fromName} — Conversa: ${replyContext.subject}`;
@@ -1158,7 +1437,7 @@
     renderFileList();
     showComposeView();
     validateForm();
-    showToast("Envio cancelado. Você pode editar o e-mail agora.");
+    showToast("Envio cancelado. O rascunho continua salvo no Gmail.");
   });
 
   sendButton.addEventListener("click", async () => {
@@ -1189,8 +1468,8 @@
     });
     if (!confirmedSend) return;
 
-    // Salva o snapshot dos dados para o envio ou anulação
     pendingEmailPayload = {
+      draftId: currentGmailDraftId,
       to: toInput.value.trim(),
       subject: subjectInput.value.trim(),
       body: bodyInput.value,
@@ -1200,7 +1479,8 @@
       replyContext: replyContext
     };
 
-    // Limpa o formulário imediatamente
+    // Limpa campos
+    currentGmailDraftId = null;
     attachedFiles = [];
     renderFileList();
     if (mode === "reply") exitReplyMode();
@@ -1211,7 +1491,7 @@
     [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
     validateForm();
 
-    // Inicia a contagem regressiva de 10 segundos
+    // Contagem de 10s
     undoSecondsRemaining = 10;
     undoTimerEl.textContent = undoSecondsRemaining;
     undoToast.classList.add("is-visible");

@@ -180,3 +180,68 @@
   background-color: var(--ring-gold);
   vertical-align: middle;
 }
+
+/* ---------------- SUB-NAV (RECEBIDOS / RASCUNHOS) ---------------- */
+.inbox-subnav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.inbox-subnav-btn {
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+}
+
+.inbox-subnav-btn:hover {
+  color: var(--text);
+  border-color: var(--ring-gold);
+}
+
+.inbox-subnav-btn.is-active {
+  background: var(--ring-gold-soft);
+  border-color: var(--ring-gold);
+  color: var(--text);
+}
+
+.drafts-badge {
+  background: var(--ring-gold);
+  color: #1c2a1c;
+  font-size: 0.68rem;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 1px 6px;
+}
+
+.draft-tag {
+  color: var(--danger);
+  font-weight: 700;
+  margin-right: 6px;
+}
+
+.btn-draft-delete {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  border-radius: var(--radius-sm);
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.btn-draft-delete:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
