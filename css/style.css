@@ -578,10 +578,209 @@ html, body{
   box-sizing: content-box;
 }
 
+/* ---------------- ABA CAIXA DE ENTRADA ---------------- */
+.inbox-tab-card{ animation: rise-in .35s cubic-bezier(.2,.7,.2,1); }
+
+.inbox-tab-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+}
+
+.inbox-tab-title{
+  margin:0;
+  font-family: var(--font-display);
+  font-weight:700;
+  font-size:1.1rem;
+}
+
+.inbox-tab-subtitle{
+  margin: 4px 0 0;
+  font-size:.8rem;
+  color: var(--text-faint);
+}
+
+.inbox-refresh-button{
+  width:34px; height:34px;
+  flex-shrink:0;
+  border-radius:50%;
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--ring-gold);
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  transition: transform .5s ease, border-color .2s ease;
+}
+.inbox-refresh-button svg{ width:17px; height:17px; }
+.inbox-refresh-button:hover{ border-color: var(--ring-gold); }
+.inbox-refresh-button.is-spinning svg{ animation: spin .7s linear infinite; }
+
+.inbox-tab-list{
+  list-style:none;
+  margin:0; padding:0;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.inbox-tab-item{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  animation: slide-in .25s ease;
+  transition: border-color .2s ease;
+}
+
+.inbox-tab-item.is-unread{ border-color: var(--ring-gold); }
+
+.inbox-tab-item-top{
+  display:flex;
+  align-items:baseline;
+  justify-content:space-between;
+  gap:10px;
+}
+
+.inbox-tab-item-from{
+  font-family: var(--font-display);
+  font-weight:700;
+  font-size:.9rem;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.inbox-tab-item-date{
+  font-size:.72rem;
+  color: var(--text-faint);
+  flex-shrink:0;
+  white-space:nowrap;
+}
+
+.inbox-tab-item-subject{
+  font-size:.85rem;
+  color: var(--text);
+  line-height:1.4;
+}
+
+.inbox-tab-attachments{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+}
+
+.inbox-attachment-chip{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  font-size:.7rem;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 3px 9px 3px 7px;
+  border-radius: 999px;
+  max-width: 180px;
+}
+
+.inbox-attachment-chip svg{ width:12px; height:12px; color: var(--ring-gold); flex-shrink:0; }
+
+.inbox-attachment-chip span{
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.inbox-tab-item-actions{
+  display:flex;
+  justify-content:flex-end;
+  margin-top: 2px;
+}
+
+.inbox-tab-reply-button{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight:700;
+  font-size:.8rem;
+  cursor:pointer;
+  transition: transform .15s ease, border-color .2s ease;
+}
+.inbox-tab-reply-button:hover{ transform: translateY(-1px); border-color: var(--ring-gold); }
+.inbox-tab-reply-button svg{ width:14px; height:14px; color: var(--ring-gold); }
+
+/* ---------------- POP-UP DE NOVO E-MAIL ---------------- */
+.mail-toast{
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 51;
+  display:flex;
+  align-items:center;
+  gap:12px;
+  background: var(--surface);
+  color: var(--text);
+  border: 1.5px solid var(--ring-gold);
+  padding: 13px 16px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lift);
+  max-width: min(320px, 84vw);
+  text-align:left;
+  cursor:pointer;
+  transform: translateX(120%);
+  opacity:0;
+  transition: transform .35s cubic-bezier(.2,.8,.2,1), opacity .3s ease;
+}
+
+.mail-toast.is-visible{
+  transform: translateX(0);
+  opacity:1;
+}
+
+.mail-toast-icon{
+  width:20px; height:20px;
+  flex-shrink:0;
+  color: var(--ring-gold);
+  background: var(--ring-gold-soft);
+  border-radius:50%;
+  padding:7px;
+  box-sizing: content-box;
+}
+
+.mail-toast-text{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+  min-width:0;
+}
+
+.mail-toast-text strong{
+  font-family: var(--font-display);
+  font-size:.86rem;
+}
+
+.mail-toast-text span{
+  font-size:.76rem;
+  color: var(--text-muted);
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
 /* ---------------- RESPONSIVE ---------------- */
 @media (max-width: 400px){
   .store-grid{ grid-template-columns: 1fr 1fr; }
   .card{ padding: 20px 16px; }
   .action-row{ flex-direction:column; }
   .success-toast{ right:14px; left:14px; max-width:none; }
+  .mail-toast{ right:14px; left:14px; max-width:none; }
 }

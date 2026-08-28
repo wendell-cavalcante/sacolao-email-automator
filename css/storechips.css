@@ -44,6 +44,30 @@
 .nav-icon{ width:18px; height:18px; color: var(--ring-gold); flex-shrink:0; }
 .nav-label{ font-family: var(--font-display); font-size:.92rem; }
 
+.nav-button{ flex:1; justify-content:center; }
+.app-nav{ display:flex; gap:10px; }
+
+.nav-button.is-active{
+  border-color: var(--ring-gold);
+  background: var(--ring-gold-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring-gold) 20%, transparent);
+}
+
+.nav-badge{
+  margin-left: 4px;
+  background: var(--danger);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: .68rem;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  display:flex; align-items:center; justify-content:center;
+  animation: pop-in .25s ease;
+}
+
 
 .store-chip::before{
   content:"";

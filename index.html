@@ -48,7 +48,12 @@
   <!-- NAVEGAÇÃO -->
   <nav class="app-nav">
 
-    <button type="button" class="nav-button" data-mode="inbox">
+    <button type="button" class="nav-button is-active" id="nav-compose" data-mode="compose">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none"><path d="M4 12h15M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span class="nav-label">Novo e-mail</span>
+    </button>
+
+    <button type="button" class="nav-button" id="nav-inbox" data-mode="inbox">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none">
         <path d="M4.5 6h15a1.5 1.5 0 0 1 .75.21l-8.25 6.29L3.75 6.21A1.5 1.5 0 0 1 4.5 6Z" 
         stroke="currentColor" stroke-width="1.8" 
@@ -56,8 +61,9 @@
         <path d="M3.75 7v10a1.5 1.5 0 0 0 .75.21h15a1.5 1.5 0 0 0 .75-.21V7l-8.25 6.29L3.75 7Z" 
         stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <span class="nav-label">Caixa de entrada</span>
-    </button>   
-  
+      <span class="nav-badge" id="nav-inbox-badge" hidden>0</span>
+    </button>
+
   </nav>
 
   <!-- CARD -->
@@ -163,6 +169,23 @@
 
   </section>
 
+  <!-- ABA: CAIXA DE ENTRADA -->
+  <section class="card inbox-tab-card" id="inbox-tab-card" hidden>
+    <div class="inbox-tab-header">
+      <div>
+        <h2 class="inbox-tab-title">Caixa de entrada</h2>
+        <p class="inbox-tab-subtitle" id="inbox-tab-subtitle">E-mails recebidos recentemente</p>
+      </div>
+      <button type="button" class="inbox-refresh-button" id="inbox-tab-refresh" aria-label="Atualizar caixa de entrada">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M20 11A8 8 0 1 0 18.7 15.5M20 5v6h-6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="inbox-loading" id="inbox-tab-loading">Carregando e-mails…</div>
+    <div class="inbox-empty" id="inbox-tab-empty" hidden>Nenhum e-mail encontrado na caixa de entrada.</div>
+    <ul class="inbox-tab-list" id="inbox-tab-list"></ul>
+  </section>
+
   <footer class="app-footer">
     <span>By <a href="https://www.instagram.com/owende.ll/" target="_blank" rel="noopener noreferrer">@owende.ll</a> · Automatizador de e-mail</span>
   </footer>
@@ -176,6 +199,18 @@
   <svg class="success-toast-icon" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 9.5 17 19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
   <span id="success-toast-text">E-mail enviado com sucesso!</span>
 </div>
+
+<!-- POP-UP DE NOVO E-MAIL RECEBIDO (canto inferior direito) -->
+<button type="button" class="mail-toast" id="mail-toast">
+  <svg class="mail-toast-icon" viewBox="0 0 24 24" fill="none">
+    <path d="M4.5 6h15a1.5 1.5 0 0 1 .75.21l-8.25 6.29L3.75 6.21A1.5 1.5 0 0 1 4.5 6Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M3.75 7v10a1.5 1.5 0 0 0 .75.21h15a1.5 1.5 0 0 0 .75-.21V7l-8.25 6.29L3.75 7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <span class="mail-toast-text">
+    <strong id="mail-toast-title">Novo e-mail recebido</strong>
+    <span id="mail-toast-detail"></span>
+  </span>
+</button>
 
 <!-- MODAL: CAIXA DE ENTRADA (para responder) -->
 <div class="modal-overlay" id="inbox-overlay">
