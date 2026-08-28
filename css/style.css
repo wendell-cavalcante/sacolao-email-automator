@@ -579,6 +579,66 @@ html, body{
   box-sizing: content-box;
 }
 
+/* ---------------- POP-UP DE DESFAZER (canto inferior esquerdo) ---------------- */
+.undo-toast {
+  position: fixed;
+  left: 22px;
+  bottom: 22px;
+  z-index: 52;
+  display: flex;
+  align-items: center;
+  background: var(--surface);
+  color: var(--text);
+  border: 1.5px solid var(--ring-gold);
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lift);
+  font-size: 0.86rem;
+  transform: translateX(-120%);
+  opacity: 0;
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease;
+}
+
+.undo-toast.is-visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.undo-toast-content {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.undo-toast-btn {
+  background: var(--ring-gold);
+  color: #1c2a1c;
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: transform 0.15s ease, opacity 0.2s ease;
+}
+
+.undo-toast-btn:hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+.undo-toast-btn:active {
+  transform: translateY(0) scale(0.96);
+}
+
+@media (max-width: 400px) {
+  .undo-toast {
+    left: 14px;
+    right: 14px;
+  }
+}
+
 /* ---------------- ABA CAIXA DE ENTRADA ---------------- */
 .inbox-tab-card{ animation: rise-in .35s cubic-bezier(.2,.7,.2,1); }
 
