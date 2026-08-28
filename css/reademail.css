@@ -1,0 +1,135 @@
+/* ---------------- LEITOR DE E-MAIL (CAIXA DE ENTRADA) ---------------- */
+.inbox-reader {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: rise-in .25s ease;
+}
+
+.inbox-reader-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+}
+
+.inbox-reader-back {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: border-color .2s ease, transform .15s ease;
+}
+
+.inbox-reader-back:hover {
+  border-color: var(--ring-gold);
+  transform: translateX(-2px);
+}
+
+.inbox-reader-header {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inbox-reader-subject {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  line-height: 1.3;
+}
+
+.inbox-reader-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.inbox-reader-meta strong {
+  color: var(--text);
+}
+
+.inbox-reader-body {
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.inbox-reader-body iframe {
+  width: 100%;
+  min-height: 250px;
+  border: none;
+  background: #fff;
+  border-radius: var(--radius-sm);
+}
+
+.inbox-reader-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.inbox-reader-attachments-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.inbox-reader-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.inbox-download-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color .2s ease, transform .15s ease;
+}
+
+.inbox-download-chip:hover {
+  border-color: var(--ring-gold);
+  transform: translateY(-1px);
+}
+
+.inbox-download-chip svg {
+  width: 14px;
+  height: 14px;
+  color: var(--ring-gold);
+}
+
+.inbox-tab-item {
+  cursor: pointer;
+}
