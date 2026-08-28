@@ -67,6 +67,11 @@
   const successToast     = document.getElementById("success-toast");
   const successToastText = document.getElementById("success-toast-text");
 
+  // Elementos da anulação de envio
+  const undoToast        = document.getElementById("undo-toast");
+  const undoTimerEl      = document.getElementById("undo-timer");
+  const undoSendBtn      = document.getElementById("undo-send-btn");
+
   let selectedStore = null;
   let attachedFiles = [];
   let toastTimer = null;
@@ -85,6 +90,11 @@
   let mailToastTimer = null;
   let isFetchingInboxTab = false;
   const MAIL_POLL_INTERVAL_MS = 45000;
+
+  // Estado da fila de anulação
+  let pendingEmailPayload = null;
+  let undoCountdownTimer = null;
+  let undoSecondsRemaining = 10;
 
   /* ---------- TEMA (claro/escuro) ---------- */
   function applyTheme(theme){
@@ -106,7 +116,7 @@
 
   initTheme();
 
-  /* ---------- TRANSIÇÃO DE TELAS (Novo E-mail <-> Caixa de Entrada) ---------- */
+  /* ---------- TRANSIÇÃO DE TELAS ---------- */
   function showComposeView(){
     currentView = "compose";
     composeCard.hidden = false;
@@ -125,7 +135,6 @@
     inboxTabCard.hidden = false;
     inboxTabCard.style.display = "flex";
 
-    // Mostra a lista e esconde o leitor ao entrar
     inboxListView.hidden = false;
     inboxReadView.hidden = true;
 
@@ -300,7 +309,7 @@
       );
       return true;
     } catch (error){
-      console.error("Falha ao atualizar status de leitura no Gmail:", error);
+      console.error("Falha ao atualizar status no Gmail:", error);
       showToast(`Erro na API do Gmail: ${error.message}`, true);
       return false;
     }
@@ -504,7 +513,7 @@
     }
   }
 
-  /* ---------- CAIXA DE ENTRADA (LISTAGEM & LEITURA) ---------- */
+  /* ---------- CAIXA DE ENTRADA ---------- */
   async function fetchInboxTabList(){
     if (isFetchingInboxTab) return;
     isFetchingInboxTab = true;
@@ -575,7 +584,6 @@
 
     updateUnreadToggleButton(wasUnread);
 
-    // Marca automaticamente como lido ao abrir o e-mail
     if (wasUnread){
       msg.labelIds = (msg.labelIds || []).filter(l => l !== "UNREAD");
       readingMailContext.isUnread = false;
@@ -666,12 +674,10 @@
         </div>
       `;
 
-      // Clicar no item abre a leitura do e-mail
       li.addEventListener("click", () => {
         openMailReader(msg);
       });
 
-      // Clicar direto no botão responder
       li.querySelector(".inbox-tab-reply-button").addEventListener("click", (e) => {
         e.stopPropagation();
         enterReplyMode({
@@ -986,7 +992,7 @@
   /* ---------- VALIDAÇÃO ---------- */
   function validateForm(){
     const ok = Boolean(toInput.value.trim() && subjectInput.value.trim());
-    sendButton.disabled = !ok;
+    sendButton.disabled = !ok || Boolean(pendingEmailPayload);
   }
 
   subjectInput.addEventListener("input", validateForm);
@@ -1030,20 +1036,20 @@
     });
   }
 
-  async function buildRawEmail() {
+  async function buildRawEmail(savedData) {
     const boundary = "boundary_" + Math.random().toString(36).substring(2);
-    const to = toInput.value.trim();
-    const subject = subjectInput.value.trim();
-    const body = bodyInput.value;
+    const to = savedData.to;
+    const subject = savedData.subject;
+    const body = savedData.body;
 
     let emailParts = [
       `To: ${to}`,
       `Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=`,
     ];
 
-    if (mode === "reply" && replyContext?.messageId){
-      emailParts.push(`In-Reply-To: ${replyContext.messageId}`);
-      emailParts.push(`References: ${replyContext.messageId}`);
+    if (savedData.mode === "reply" && savedData.replyContext?.messageId){
+      emailParts.push(`In-Reply-To: ${savedData.replyContext.messageId}`);
+      emailParts.push(`References: ${savedData.replyContext.messageId}`);
     }
 
     emailParts.push(
@@ -1058,7 +1064,7 @@
       ''
     );
 
-    for (const file of attachedFiles) {
+    for (const file of savedData.files) {
       const base64Data = await fileToBase64(file);
       emailParts.push(
         `--${boundary}`,
@@ -1079,6 +1085,81 @@
       .replace(/\//g, '_')
       .replace(/=+$/, '');
   }
+
+  async function executeActualSend(dataToSend) {
+    try {
+      const raw = await buildRawEmail(dataToSend);
+      const payload = { raw };
+      if (dataToSend.mode === "reply" && dataToSend.replyContext?.threadId){
+        payload.threadId = dataToSend.replyContext.threadId;
+      }
+
+      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error?.message || "Falha ao enviar e-mail.");
+      }
+
+      showSuccessToast(
+        dataToSend.files.length
+          ? `E-mail enviado com ${dataToSend.files.length} anexo(s)!`
+          : "E-mail enviado com sucesso!"
+      );
+    } catch (error) {
+      console.error(error);
+      showToast(`Erro: ${error.message}`, true);
+    }
+  }
+
+  function hideUndoToast() {
+    undoToast.classList.remove("is-visible");
+    if (undoCountdownTimer) {
+      clearInterval(undoCountdownTimer);
+      undoCountdownTimer = null;
+    }
+  }
+
+  /* ---------- BOTÃO DESFAZER ENVIO ---------- */
+  undoSendBtn.addEventListener("click", () => {
+    if (!pendingEmailPayload) return;
+
+    // Cancela o envio agendado
+    hideUndoToast();
+    const restored = pendingEmailPayload;
+    pendingEmailPayload = null;
+
+    // Restaura os campos do formulário para edição
+    toInput.value = restored.to;
+    subjectInput.value = restored.subject;
+    bodyInput.value = restored.body;
+    attachedFiles = [...restored.files];
+    selectedStore = restored.selectedStore;
+    mode = restored.mode;
+    replyContext = restored.replyContext;
+
+    if (mode === "reply" && replyContext) {
+      replyBannerDetail.textContent = `Para ${replyContext.fromName} — Conversa: ${replyContext.subject}`;
+      replyBanner.classList.add("is-visible");
+    } else {
+      replyBanner.classList.remove("is-visible");
+      [...storeGrid.querySelectorAll(".store-chip")].forEach(c =>
+        c.classList.toggle("is-active", c.dataset.store === selectedStore)
+      );
+    }
+
+    renderFileList();
+    showComposeView();
+    validateForm();
+    showToast("Envio cancelado. Você pode editar o e-mail agora.");
+  });
 
   sendButton.addEventListener("click", async () => {
     if (sendButton.disabled) return;
@@ -1108,48 +1189,50 @@
     });
     if (!confirmedSend) return;
 
-    sendButton.classList.add("is-loading");
-    sendButton.disabled = true;
+    // Salva o snapshot dos dados para o envio ou anulação
+    pendingEmailPayload = {
+      to: toInput.value.trim(),
+      subject: subjectInput.value.trim(),
+      body: bodyInput.value,
+      files: [...attachedFiles],
+      selectedStore: selectedStore,
+      mode: mode,
+      replyContext: replyContext
+    };
 
-    try {
-      const raw = await buildRawEmail();
-      const payload = { raw };
-      if (mode === "reply" && replyContext?.threadId){
-        payload.threadId = replyContext.threadId;
+    // Limpa o formulário imediatamente
+    attachedFiles = [];
+    renderFileList();
+    if (mode === "reply") exitReplyMode();
+    toInput.value = "";
+    subjectInput.value = "";
+    bodyInput.value = buildDefaultBody();
+    selectedStore = null;
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
+    validateForm();
+
+    // Inicia a contagem regressiva de 10 segundos
+    undoSecondsRemaining = 10;
+    undoTimerEl.textContent = undoSecondsRemaining;
+    undoToast.classList.add("is-visible");
+
+    if (undoCountdownTimer) clearInterval(undoCountdownTimer);
+
+    undoCountdownTimer = setInterval(async () => {
+      undoSecondsRemaining--;
+      undoTimerEl.textContent = undoSecondsRemaining;
+
+      if (undoSecondsRemaining <= 0) {
+        hideUndoToast();
+        const finalData = pendingEmailPayload;
+        pendingEmailPayload = null;
+        validateForm();
+
+        if (finalData) {
+          await executeActualSend(finalData);
+        }
       }
-
-      const response = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error?.message || "Falha ao enviar e-mail.");
-      }
-
-      showSuccessToast(
-        attachedFiles.length
-          ? `E-mail enviado com ${attachedFiles.length} anexo(s)!`
-          : "E-mail enviado com sucesso!"
-      );
-
-      attachedFiles = [];
-      renderFileList();
-      if (mode === "reply") exitReplyMode();
-      subjectInput.value = "";
-      bodyInput.value = buildDefaultBody();
-    } catch (error) {
-      console.error(error);
-      showToast(`Erro: ${error.message}`, true);
-    } finally {
-      sendButton.classList.remove("is-loading");
-      validateForm();
-    }
+    }, 1000);
   });
 
   showComposeView();
