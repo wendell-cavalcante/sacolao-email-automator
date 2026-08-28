@@ -191,17 +191,23 @@
       <ul class="inbox-tab-list" id="inbox-tab-list"></ul>
     </div>
 
-    <!-- LEITOR DO E-MAIL SELECIONADO -->
+<!-- LEITOR DO E-MAIL SELECIONADO -->
     <div id="inbox-read-view" class="inbox-reader" hidden>
       <div class="inbox-reader-top">
         <button type="button" class="inbox-reader-back" id="inbox-read-back">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
           Voltar para a lista
         </button>
-        <button type="button" class="inbox-tab-reply-button" id="inbox-read-reply-btn">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h9a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          Responder
-        </button>
+        <div class="inbox-reader-top-actions">
+          <button type="button" class="inbox-action-btn btn-unread-toggle" id="inbox-read-unread-btn" title="Marcar como não lido">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" fill="currentColor"/></svg>
+            Marcar não lido
+          </button>
+          <button type="button" class="inbox-tab-reply-button" id="inbox-read-reply-btn">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h9a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Responder
+          </button>
+        </div>
       </div>
 
       <div class="inbox-reader-header">
