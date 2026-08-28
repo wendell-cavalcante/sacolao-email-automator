@@ -1,4 +1,4 @@
-/* ---------------- STORE CHIPS ---------------- */
+/* ---------------- STORE - CHIPS ---------------- */
 .store-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
