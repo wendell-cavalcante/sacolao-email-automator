@@ -7,7 +7,13 @@
   const authButton    = document.getElementById("auth-button");
   const storeGrid     = document.getElementById("store-grid");
   const storeHint     = document.getElementById("store-hint");
-  const toInput       = document.getElementById("to-input");
+  
+  // Elementos do novo campo de Destinatários
+  const recipientsContainer = document.getElementById("recipients-container");
+  const recipientsChipsEl   = document.getElementById("recipients-chips");
+  const toTextInput         = document.getElementById("to-text-input");
+  const toInput             = document.getElementById("to-input"); // Campo hidden para integração
+  
   const subjectInput  = document.getElementById("subject-input");
   const bodyInput     = document.getElementById("body-input");
   const dropzone      = document.getElementById("dropzone");
@@ -78,6 +84,7 @@
   const undoSendBtn      = document.getElementById("undo-send-btn");
 
   let selectedStore = null;
+  let recipientEmails = [];
   let attachedFiles = [];
   let toastTimer = null;
   let successToastTimer = null;
@@ -90,7 +97,7 @@
   let readingMailContext = null;
 
   let currentView = "compose";
-  let currentInboxSubTab = "inbox"; // "inbox" | "drafts"
+  let currentInboxSubTab = "inbox";
   let cachedInboxMessages = [];
 
   let seenMessageIds = null;
@@ -128,6 +135,82 @@
   });
 
   initTheme();
+
+  /* ---------- GERENCIAMENTO DE DESTINATÁRIOS (CHIPS) ---------- */
+  function renderRecipients() {
+    recipientsChipsEl.innerHTML = "";
+    recipientEmails.forEach((email, index) => {
+      const chip = document.createElement("span");
+      chip.className = "recipient-chip";
+      chip.innerHTML = `
+        <button type="button" class="recipient-chip-remove" data-index="${index}" title="Remover e-mail">✕</button>
+        <span class="recipient-chip-text">${email}</span>
+      `;
+      recipientsChipsEl.appendChild(chip);
+    });
+
+    toInput.value = recipientEmails.join(", ");
+    validateForm();
+  }
+
+  function addRecipient(rawEmail) {
+    const cleaned = rawEmail.trim().replace(/^,+|,+$/g, "");
+    if (!cleaned) return;
+
+    const splitted = cleaned.split(/[\s,;]+/);
+    splitted.forEach(email => {
+      const trimmed = email.trim();
+      if (trimmed && !recipientEmails.includes(trimmed)) {
+        recipientEmails.push(trimmed);
+      }
+    });
+
+    renderRecipients();
+    scheduleAutoSaveDraft();
+  }
+
+  function removeRecipient(index) {
+    recipientEmails.splice(index, 1);
+    renderRecipients();
+    scheduleAutoSaveDraft();
+  }
+
+  recipientsContainer.addEventListener("click", (e) => {
+    const btn = e.target.closest(".recipient-chip-remove");
+    if (btn) {
+      removeRecipient(Number(btn.dataset.index));
+      return;
+    }
+    toTextInput.focus();
+  });
+
+  toTextInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === "," || e.key === ";") {
+      e.preventDefault();
+      if (toTextInput.value.trim()) {
+        addRecipient(toTextInput.value);
+        toTextInput.value = "";
+      }
+    } else if (e.key === "Backspace" && !toTextInput.value && recipientEmails.length > 0) {
+      removeRecipient(recipientEmails.length - 1);
+    }
+  });
+
+  toTextInput.addEventListener("blur", () => {
+    if (toTextInput.value.trim()) {
+      addRecipient(toTextInput.value);
+      toTextInput.value = "";
+    }
+  });
+
+  toTextInput.addEventListener("paste", (e) => {
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    if (text) {
+      addRecipient(text);
+      toTextInput.value = "";
+    }
+  });
 
   /* ---------- TRANSIÇÃO DE TELAS ---------- */
   function showComposeView(){
@@ -186,7 +269,6 @@
     }
   });
 
-  /* Sub-navegação Caixa de Entrada vs Rascunhos */
   subnavInboxBtn.addEventListener("click", async () => {
     currentInboxSubTab = "inbox";
     subnavInboxBtn.classList.add("is-active");
@@ -430,12 +512,11 @@
 
   /* ---------- RASCUNHOS DIRETAMENTE NO GMAIL API ---------- */
   function isFormDirty(){
-    const to = toInput.value.trim();
     const sub = subjectInput.value.trim();
     const body = bodyInput.value.trim();
     const defBody = buildDefaultBody().trim();
 
-    return Boolean(to || sub || (body && body !== defBody) || attachedFiles.length > 0);
+    return Boolean(recipientEmails.length > 0 || sub || (body && body !== defBody) || attachedFiles.length > 0);
   }
 
   async function updateDraftsBadge(){
@@ -459,7 +540,7 @@
     isSavingDraft = true;
     try {
       const raw = await buildRawEmail({
-        to: toInput.value.trim(),
+        to: recipientEmails.join(", "),
         subject: subjectInput.value.trim(),
         body: bodyInput.value,
         files: attachedFiles,
@@ -564,15 +645,23 @@
     const msg = draft.message;
     const headers = msg?.payload?.headers || [];
     
-    toInput.value = getHeader(headers, "To") || "";
+    const toRaw = getHeader(headers, "To") || "";
+    recipientEmails = [];
+    if (toRaw) {
+      addRecipient(toRaw);
+    } else {
+      renderRecipients();
+    }
+
     subjectInput.value = getHeader(headers, "Subject") || "";
     bodyInput.value = extractMessageBody(msg?.payload) || buildDefaultBody();
     
-    // Reconhece a loja pelo e-mail
+    // Reconhece a loja
     selectedStore = null;
     if (typeof STORE_EMAILS !== "undefined") {
+      const currentToStr = recipientEmails.join(", ").toLowerCase();
       for (const [key, emails] of Object.entries(STORE_EMAILS)) {
-        if (emails.toLowerCase().includes(toInput.value.toLowerCase())) {
+        if (emails.toLowerCase().split(",").some(e => currentToStr.includes(e.trim().toLowerCase()))) {
           selectedStore = key;
           break;
         }
@@ -653,9 +742,15 @@
     const email = (typeof STORE_EMAILS !== "undefined" && STORE_EMAILS[store]) || "";
     const name  = (typeof STORE_NAMES !== "undefined" && STORE_NAMES[store]) || chip.querySelector(".chip-name").textContent;
 
-    toInput.value = email;
+    recipientEmails = [];
+    if (email) {
+      addRecipient(email);
+    } else {
+      renderRecipients();
+    }
+
     storeHint.textContent = email
-      ? `Destinatário definido: ${name}.`
+      ? `Destinatários da loja ${name} adicionados.`
       : `Cadastre o e-mail da loja "${name}" em js/config.js.`;
 
     validateForm();
@@ -1123,7 +1218,13 @@
     mode = "reply";
     replyContext = ctx;
 
-    toInput.value = ctx.to;
+    recipientEmails = [];
+    if (ctx.to) {
+      addRecipient(ctx.to);
+    } else {
+      renderRecipients();
+    }
+
     subjectInput.value = "";
     bodyInput.value = buildDefaultBody();
 
@@ -1141,7 +1242,8 @@
     selectedStore = null;
     [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
 
-    toInput.value = "";
+    recipientEmails = [];
+    renderRecipients();
     subjectInput.value = "";
     storeHint.textContent = "Selecione a loja para preencher o destinatário automaticamente.";
 
@@ -1258,16 +1360,11 @@
 
   /* ---------- VALIDAÇÃO ---------- */
   function validateForm(){
-    const ok = Boolean(toInput.value.trim() && subjectInput.value.trim());
+    const ok = Boolean(recipientEmails.length > 0 && subjectInput.value.trim());
     sendButton.disabled = !ok || Boolean(pendingEmailPayload);
   }
 
   subjectInput.addEventListener("input", () => {
-    validateForm();
-    scheduleAutoSaveDraft();
-  });
-
-  toInput.addEventListener("input", () => {
     validateForm();
     scheduleAutoSaveDraft();
   });
@@ -1383,7 +1480,6 @@
         throw new Error(err.error?.message || "Falha ao enviar e-mail.");
       }
 
-      // Deleta o rascunho do Gmail se existia
       if (dataToSend.draftId) {
         deleteGmailDraft(dataToSend.draftId);
       }
@@ -1415,7 +1511,13 @@
     const restored = pendingEmailPayload;
     pendingEmailPayload = null;
 
-    toInput.value = restored.to;
+    recipientEmails = [];
+    if (restored.to) {
+      addRecipient(restored.to);
+    } else {
+      renderRecipients();
+    }
+
     subjectInput.value = restored.subject;
     bodyInput.value = restored.body;
     attachedFiles = [...restored.files];
@@ -1460,9 +1562,10 @@
       if (!proceedAnyway) return;
     }
 
+    const recipientString = recipientEmails.join(", ");
     const confirmedSend = await showConfirm({
       title: mode === "reply" ? "Confirmar resposta" : "Confirmar envio",
-      message: `Enviar este e-mail para ${toInput.value.trim()}?`,
+      message: `Enviar este e-mail para ${recipientString}?`,
       confirmText: "Enviar",
       cancelText: "Cancelar",
     });
@@ -1470,7 +1573,7 @@
 
     pendingEmailPayload = {
       draftId: currentGmailDraftId,
-      to: toInput.value.trim(),
+      to: recipientString,
       subject: subjectInput.value.trim(),
       body: bodyInput.value,
       files: [...attachedFiles],
@@ -1479,12 +1582,13 @@
       replyContext: replyContext
     };
 
-    // Limpa campos
+    // Limpa os campos
     currentGmailDraftId = null;
+    recipientEmails = [];
+    renderRecipients();
     attachedFiles = [];
     renderFileList();
     if (mode === "reply") exitReplyMode();
-    toInput.value = "";
     subjectInput.value = "";
     bodyInput.value = buildDefaultBody();
     selectedStore = null;
@@ -1516,5 +1620,6 @@
   });
 
   showComposeView();
+  renderRecipients();
   validateForm();
 })();

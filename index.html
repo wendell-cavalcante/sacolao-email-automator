@@ -108,21 +108,17 @@
       <p class="field-hint" id="store-hint">Selecione a loja para preencher o destinatário automaticamente.</p>
     </div>
 
-    <!-- STEP 2: PARA / ASSUNTO -->
+<!-- STEP 2: PARA / ASSUNTO -->
     <div class="field-block">
-      <label class="field-label" for="to-input">
+      <label class="field-label" for="to-text-input">
         <span class="field-index">2</span>
-        Destinatário
+        Destinatários
       </label>
-      <input type="text" id="to-input" class="text-input" placeholder="Selecione uma loja acima" readonly>
-    </div>
-
-    <div class="field-block">
-      <label class="field-label" for="subject-input">
-        <span class="field-index">3</span>
-        Assunto
-      </label>
-      <input type="text" id="subject-input" class="text-input" placeholder="Ex: NOTAS E CUSTOS LOJA - MERCEARIA">
+      <div class="recipients-container" id="recipients-container">
+        <div class="recipients-chips" id="recipients-chips"></div>
+        <input type="email" id="to-text-input" class="recipients-input" placeholder="Digite um e-mail e pressione Enter ou vírgula...">
+      </div>
+      <input type="hidden" id="to-input">
     </div>
 
     <!-- STEP 3: MENSAGEM -->
