@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="css/style.css">
 <!-- SDK do Google Identity Services -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<!-- SheetJS para renderizar planilhas Excel/CSV -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -47,28 +49,24 @@
 
   <!-- NAVEGAÇÃO -->
   <nav class="app-nav">
-
-<button type="button" class="nav-button is-active" id="nav-compose" data-mode="compose">
-  <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>
-  </svg>
-  <span class="nav-label">Home</span>
-</button>
+    <button type="button" class="nav-button is-active" id="nav-compose" data-mode="compose">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>
+      </svg>
+      <span class="nav-label">Home</span>
+    </button>
 
     <button type="button" class="nav-button" id="nav-inbox" data-mode="inbox">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none">
-        <path d="M4.5 6h15a1.5 1.5 0 0 1 .75.21l-8.25 6.29L3.75 6.21A1.5 1.5 0 0 1 4.5 6Z" 
-        stroke="currentColor" stroke-width="1.8" 
-        stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M3.75 7v10a1.5 1.5 0 0 0 .75.21h15a1.5 1.5 0 0 0 .75-.21V7l-8.25 6.29L3.75 7Z" 
-        stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <path d="M4.5 6h15a1.5 1.5 0 0 1 .75.21l-8.25 6.29L3.75 6.21A1.5 1.5 0 0 1 4.5 6Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M3.75 7v10a1.5 1.5 0 0 0 .75.21h15a1.5 1.5 0 0 0 .75-.21V7l-8.25 6.29L3.75 7Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
       <span class="nav-label">Caixa de entrada</span>
       <span class="nav-badge" id="nav-inbox-badge" hidden>0</span>
     </button>
-
   </nav>
 
-<!-- CARD -->
+  <!-- CARD -->
   <section class="card" id="compose-card">
 
     <!-- AVISO DE MODO RESPOSTA (RETÂNGULO NO TOPO) -->
@@ -121,7 +119,7 @@
       <input type="hidden" id="to-input">
     </div>
 
-    <!-- STEP 3: ASSUNTO (RECOLOCADO) -->
+    <!-- STEP 3: ASSUNTO -->
     <div class="field-block">
       <label class="field-label" for="subject-input">
         <span class="field-index">3</span>
@@ -183,7 +181,6 @@
     <div id="inbox-list-view">
       <div class="inbox-tab-header">
         <div>
-          <!-- Seletor de visualização (Recebidos vs Rascunhos) -->
           <div class="inbox-subnav">
             <button type="button" class="inbox-subnav-btn is-active" id="subnav-inbox-btn">
               Recebidos
@@ -292,7 +289,7 @@
   </div>
 </div>
 
-<!-- MODAL: CONFIRMAÇÃO (genérico — usado para aviso de anexo e confirmação de envio) -->
+<!-- MODAL: CONFIRMAÇÃO (genérico) -->
 <div class="modal-overlay" id="confirm-overlay">
   <div class="modal-box modal-box-confirm" id="confirm-box">
     <h3 id="confirm-title"></h3>
@@ -303,6 +300,45 @@
       <button type="button" class="modal-btn modal-btn-primary" id="confirm-ok"></button>
     </div>
   </div>
+</div>
+
+<!-- MODAL DE PRÉ-VISUALIZAÇÃO DE ANEXO (ESTILO GMAIL) -->
+<div class="attachment-modal" id="attachment-modal" hidden>
+  <header class="att-viewer-header">
+    <div class="att-viewer-left">
+      <button type="button" class="att-viewer-btn" id="att-viewer-close" title="Fechar visualizador">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="att-viewer-file-info">
+        <span class="att-viewer-icon" id="att-viewer-icon"></span>
+        <span class="att-viewer-filename" id="att-viewer-filename"></span>
+      </div>
+    </div>
+
+    <div class="att-viewer-center">
+      <button type="button" class="att-viewer-openwith" id="att-viewer-openwith">
+        <span id="att-viewer-openwith-text">Abrir com Google Drive</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="m6 9 6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <div class="att-viewer-right">
+      <button type="button" class="att-viewer-btn" id="att-viewer-drive" title="Adicionar atalho ao Google Drive">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v12M12 4l-4 4M12 4l4 4M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="att-viewer-btn" id="att-viewer-print" title="Imprimir">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6v-8Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="att-viewer-btn" id="att-viewer-download" title="Fazer download">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V3M12 15l-4-4M12 15l4-4M4 21h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="att-viewer-body" id="att-viewer-body">
+    <div class="att-viewer-loading" id="att-viewer-loading">Carregando visualização...</div>
+    <div class="att-viewer-content" id="att-viewer-content"></div>
+  </main>
 </div>
 
 <script src="js/config.js"></script>
