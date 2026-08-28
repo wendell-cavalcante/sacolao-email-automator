@@ -27,13 +27,12 @@
   const inboxEmpty   = document.getElementById("inbox-empty");
   const inboxList    = document.getElementById("inbox-list");
 
-
   const navComposeButton = document.getElementById("nav-compose");
   const navInboxButton   = document.getElementById("nav-inbox");
-  const navInboxBadge = document.getElementById("nav-inbox-badge");
-  const composeCard = document.getElementById("compose-card");
+  const navInboxBadge    = document.getElementById("nav-inbox-badge");
+  const composeCard      = document.getElementById("compose-card");
 
-  const inboxTabCard = document.getElementById("inbox-tab-card");
+  const inboxTabCard     = document.getElementById("inbox-tab-card");
   const inboxTabRefresh  = document.getElementById("inbox-tab-refresh");
   const inboxTabLoading  = document.getElementById("inbox-tab-loading");
   const inboxTabEmpty    = document.getElementById("inbox-tab-empty");
@@ -43,7 +42,6 @@
   const mailToast       = document.getElementById("mail-toast");
   const mailToastTitle  = document.getElementById("mail-toast-title");
   const mailToastDetail = document.getElementById("mail-toast-detail");
-
 
   const confirmOverlay  = document.getElementById("confirm-overlay");
   const confirmBox      = document.getElementById("confirm-box");
@@ -94,6 +92,52 @@
 
   initTheme();
 
+  /* ---------- NAVEGAÇÃO DE ABAS (Novo e-mail / Caixa de entrada) ---------- */
+  function showComposeView(){
+    currentView = "compose";
+    composeCard.hidden = false;
+    inboxTabCard.hidden = true;
+    navComposeButton.classList.add("is-active");
+    navInboxButton.classList.remove("is-active");
+  }
+
+  function showInboxView(){
+    currentView = "inbox";
+    composeCard.hidden = true;
+    inboxTabCard.hidden = false;
+    navInboxButton.classList.add("is-active");
+    navComposeButton.classList.remove("is-active");
+    clearInboxBadge();
+  }
+
+  navComposeButton.addEventListener("click", showComposeView);
+
+  navInboxButton.addEventListener("click", async () => {
+    showInboxView();
+    const ok = await ensureAuth();
+    if (!ok) return;
+    fetchInboxTabList();
+  });
+
+  inboxTabRefresh.addEventListener("click", async () => {
+    const ok = await ensureAuth();
+    if (!ok) return;
+    fetchInboxTabList();
+  });
+
+  function clearInboxBadge(){
+    navInboxBadge.hidden = true;
+    navInboxBadge.textContent = "0";
+  }
+
+  function bumpInboxBadge(count){
+    if (currentView === "inbox") return;
+    const current = Number(navInboxBadge.textContent || "0");
+    const total = current + count;
+    navInboxBadge.textContent = String(total);
+    navInboxBadge.hidden = false;
+  }
+
   /* ---------- GOOGLE OAUTH2 & SESSÃO PERSISTENTE ---------- */
   function setSessionToken(token, expiresInSeconds = 3500) {
     accessToken = token;
@@ -112,6 +156,7 @@
 
     authButton.textContent = "Login";
     authButton.style.borderColor = "";
+    stopMailPolling();
   }
 
   function restoreSession() {
@@ -144,6 +189,7 @@
         }
         setSessionToken(tokenResponse.access_token, tokenResponse.expires_in || 3599);
         showToast("Conta Google conectada!");
+        startMailPolling();
 
         if (onAuthSuccess) {
           const cb = onAuthSuccess;
@@ -158,6 +204,8 @@
       try {
         tokenClient.requestAccessToken({ prompt: "none" });
       } catch (e) {}
+    } else if (restored) {
+      startMailPolling();
     }
   }
 
@@ -361,6 +409,206 @@
 
       inboxList.appendChild(li);
     });
+  }
+
+  /* ---------- ABA CAIXA DE ENTRADA (lista completa com anexos) ---------- */
+  function buildFullMessageUrl(id){
+    return `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
+  }
+
+  function extractAttachments(payload){
+    const attachments = [];
+    function walk(part){
+      if (!part) return;
+      if (part.filename && part.filename.trim()){
+        attachments.push({
+          filename: part.filename,
+          mimeType: part.mimeType || "",
+          size: (part.body && part.body.size) || 0,
+        });
+      }
+      (part.parts || []).forEach(walk);
+    }
+    walk(payload);
+    return attachments;
+  }
+
+  function attachmentIconSvg(){
+    return `<svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+  }
+
+  async function fetchInboxTabList(){
+    if (isFetchingInboxTab) return;
+    isFetchingInboxTab = true;
+
+    inboxTabLoading.hidden = false;
+    inboxTabEmpty.hidden = true;
+    inboxTabRefresh.classList.add("is-spinning");
+
+    try {
+      const listData = await gmailApiFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=INBOX"
+      );
+      const refs = listData.messages || [];
+
+      if (!refs.length){
+        inboxTabList.innerHTML = "";
+        inboxTabLoading.hidden = true;
+        inboxTabEmpty.hidden = false;
+        return;
+      }
+
+      const details = await Promise.all(
+        refs.map(ref => gmailApiFetch(buildFullMessageUrl(ref.id)))
+      );
+
+      details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
+
+      // Baseline: primeira vez que carregamos, não notifica sobre e-mails já existentes.
+      // Nas próximas vezes, apenas marcamos como "vistos" (já apareceram na aba).
+      if (seenMessageIds === null){
+        seenMessageIds = new Set(details.map(d => d.id));
+      } else {
+        details.forEach(d => seenMessageIds.add(d.id));
+      }
+
+      renderInboxTabList(details);
+      inboxTabSubtitle.textContent = `${details.length} e-mail(s) recebido(s) recentemente`;
+    } catch (error){
+      console.error(error);
+      showToast(`Não foi possível carregar a caixa de entrada: ${error.message}`, true);
+    } finally {
+      inboxTabLoading.hidden = true;
+      inboxTabRefresh.classList.remove("is-spinning");
+      isFetchingInboxTab = false;
+    }
+  }
+
+  function renderInboxTabList(messages){
+    inboxTabList.innerHTML = "";
+
+    messages.forEach(msg => {
+      const headers    = msg.payload?.headers || [];
+      const fromRaw    = getHeader(headers, "From");
+      const subject    = getHeader(headers, "Subject") || "(sem assunto)";
+      const messageId  = getHeader(headers, "Message-Id");
+      const dateLabel  = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
+      const fromName   = extractDisplayName(fromRaw);
+      const fromEmail  = extractEmailAddress(fromRaw);
+      const attachments = extractAttachments(msg.payload);
+
+      const li = document.createElement("li");
+      li.className = "inbox-tab-item";
+
+      const attachmentsHtml = attachments.length
+        ? `<div class="inbox-tab-attachments">${attachments.map(att => `
+            <span class="inbox-attachment-chip" title="${att.filename}">
+              ${attachmentIconSvg()}<span>${att.filename}</span>
+            </span>`).join("")}</div>`
+        : "";
+
+      li.innerHTML = `
+        <div class="inbox-tab-item-top">
+          <span class="inbox-tab-item-from">${fromName}</span>
+          <span class="inbox-tab-item-date">${dateLabel}</span>
+        </div>
+        <div class="inbox-tab-item-subject">${subject}</div>
+        ${attachmentsHtml}
+        <div class="inbox-tab-item-actions">
+          <button type="button" class="inbox-tab-reply-button">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h9a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Responder
+          </button>
+        </div>
+      `;
+
+      li.querySelector(".inbox-tab-reply-button").addEventListener("click", () => {
+        enterReplyMode({
+          threadId: msg.threadId,
+          messageId: messageId,
+          to: fromEmail,
+          fromName: fromName,
+          subject: subject,
+        });
+        showComposeView();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+
+      inboxTabList.appendChild(li);
+    });
+  }
+
+  /* ---------- NOTIFICAÇÃO DE NOVO E-MAIL (polling) ---------- */
+  function showMailToast(count, latest){
+    if (count === 1 && latest){
+      const headers = latest.payload?.headers || [];
+      const fromName = extractDisplayName(getHeader(headers, "From"));
+      const subject = getHeader(headers, "Subject") || "(sem assunto)";
+      mailToastTitle.textContent = `Novo e-mail de ${fromName}`;
+      mailToastDetail.textContent = subject;
+    } else {
+      mailToastTitle.textContent = "Novos e-mails recebidos";
+      mailToastDetail.textContent = `${count} mensagens novas na caixa de entrada`;
+    }
+
+    mailToast.classList.add("is-visible");
+    clearTimeout(mailToastTimer);
+    mailToastTimer = setTimeout(() => mailToast.classList.remove("is-visible"), 7000);
+  }
+
+  mailToast.addEventListener("click", () => {
+    mailToast.classList.remove("is-visible");
+    showInboxView();
+    fetchInboxTabList();
+  });
+
+  async function checkForNewMail(){
+    if (!accessToken) return;
+    try {
+      const listData = await gmailApiFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=10&labelIds=INBOX"
+      );
+      const refs = listData.messages || [];
+      if (!refs.length) return;
+
+      if (seenMessageIds === null){
+        // Ainda não temos baseline (aba nunca foi aberta) — cria sem notificar
+        seenMessageIds = new Set(refs.map(r => r.id));
+        return;
+      }
+
+      const newRefs = refs.filter(r => !seenMessageIds.has(r.id));
+      if (!newRefs.length) return;
+
+      newRefs.forEach(r => seenMessageIds.add(r.id));
+      bumpInboxBadge(newRefs.length);
+
+      let latestDetail = null;
+      if (newRefs.length === 1){
+        latestDetail = await gmailApiFetch(buildFullMessageUrl(newRefs[0].id));
+      }
+      showMailToast(newRefs.length, latestDetail);
+
+      if (currentView === "inbox"){
+        fetchInboxTabList();
+      }
+    } catch (error){
+      // Falha silenciosa no polling para não incomodar o usuário
+      console.warn("Falha ao verificar novos e-mails:", error.message);
+    }
+  }
+
+  function startMailPolling(){
+    stopMailPolling();
+    checkForNewMail();
+    mailPollTimer = setInterval(checkForNewMail, MAIL_POLL_INTERVAL_MS);
+  }
+
+  function stopMailPolling(){
+    if (mailPollTimer){
+      clearInterval(mailPollTimer);
+      mailPollTimer = null;
+    }
   }
 
   function enterReplyMode(ctx){
