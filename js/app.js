@@ -39,6 +39,18 @@
   const inboxTabList     = document.getElementById("inbox-tab-list");
   const inboxTabSubtitle = document.getElementById("inbox-tab-subtitle");
 
+  // Elementos da leitura de e-mail
+  const inboxListView        = document.getElementById("inbox-list-view");
+  const inboxReadView        = document.getElementById("inbox-read-view");
+  const inboxReadBack        = document.getElementById("inbox-read-back");
+  const inboxReadReplyBtn    = document.getElementById("inbox-read-reply-btn");
+  const readSubject          = document.getElementById("read-subject");
+  const readFrom             = document.getElementById("read-from");
+  const readDate             = document.getElementById("read-date");
+  const readBody             = document.getElementById("read-body");
+  const readAttachmentsWrap  = document.getElementById("read-attachments-wrap");
+  const readAttachmentsList  = document.getElementById("read-attachments-list");
+
   const mailToast       = document.getElementById("mail-toast");
   const mailToastTitle  = document.getElementById("mail-toast-title");
   const mailToastDetail = document.getElementById("mail-toast-detail");
@@ -61,12 +73,13 @@
   let tokenClient = null;
   let accessToken = null;
 
-  let mode = "compose";      // "compose" | "reply"
-  let replyContext = null;   // { threadId, messageId, to, subject }
+  let mode = "compose";
+  let replyContext = null;
   let onAuthSuccess = null;
+  let readingMailContext = null;
 
-  let currentView = "compose";     // "compose" | "inbox"
-  let seenMessageIds = null;       // Set com ids já conhecidos (para detectar novos e-mails)
+  let currentView = "compose";
+  let seenMessageIds = null;
   let mailPollTimer = null;
   let mailToastTimer = null;
   let isFetchingInboxTab = false;
@@ -92,11 +105,14 @@
 
   initTheme();
 
-  /* ---------- NAVEGAÇÃO DE ABAS (Novo e-mail / Caixa de entrada) ---------- */
+  /* ---------- TRANSIÇÃO DE TELAS (Novo E-mail <-> Caixa de Entrada) ---------- */
   function showComposeView(){
     currentView = "compose";
     composeCard.hidden = false;
+    composeCard.style.display = "flex";
     inboxTabCard.hidden = true;
+    inboxTabCard.style.display = "none";
+
     navComposeButton.classList.add("is-active");
     navInboxButton.classList.remove("is-active");
   }
@@ -104,7 +120,14 @@
   function showInboxView(){
     currentView = "inbox";
     composeCard.hidden = true;
+    composeCard.style.display = "none";
     inboxTabCard.hidden = false;
+    inboxTabCard.style.display = "flex";
+
+    // Mostra a lista e esconde o leitor ao entrar
+    inboxListView.hidden = false;
+    inboxReadView.hidden = true;
+
     navInboxButton.classList.add("is-active");
     navComposeButton.classList.remove("is-active");
     clearInboxBadge();
@@ -143,7 +166,7 @@
     navInboxBadge.hidden = false;
   }
 
-  /* ---------- GOOGLE OAUTH2 & SESSÃO PERSISTENTE ---------- */
+  /* ---------- GOOGLE OAUTH2 & SESSÃO ---------- */
   function setSessionToken(token, expiresInSeconds = 3500) {
     accessToken = token;
     const expiresAt = Date.now() + expiresInSeconds * 1000;
@@ -273,7 +296,7 @@
 
   bodyInput.value = buildDefaultBody();
 
-  /* ---------- SELEÇÃO DE LOJA (BOTÕES AUTOMÁTICOS) ---------- */
+  /* ---------- SELEÇÃO DE LOJA ---------- */
   storeGrid.addEventListener("click", (e) => {
     const chip = e.target.closest(".store-chip");
     if (!chip) return;
@@ -296,7 +319,7 @@
     validateForm();
   });
 
-  /* ---------- RESPONDER E-MAIL ---------- */
+  /* ---------- FORMATAÇÃO E HELPERS ---------- */
   function formatEmailDate(internalDateMs, headerDateStr){
     const date = internalDateMs ? new Date(Number(internalDateMs)) : new Date(headerDateStr);
     if (isNaN(date.getTime())) return headerDateStr || "";
@@ -318,107 +341,39 @@
     return match ? match[1].trim() : extractEmailAddress(fromHeader);
   }
 
-  function openInboxModal(){
-    inboxOverlay.classList.add("is-visible");
+  function buildFullMessageUrl(id){
+    return `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
   }
 
-  function closeInboxModal(){
-    inboxOverlay.classList.remove("is-visible");
-  }
-
-  inboxClose.addEventListener("click", closeInboxModal);
-  inboxOverlay.addEventListener("click", (e) => {
-    if (e.target === inboxOverlay) closeInboxModal();
-  });
-
-  function buildMetadataUrl(id){
-    const params = new URLSearchParams({ format: "metadata" });
-    ["Subject", "From", "Date", "Message-Id"].forEach(h => params.append("metadataHeaders", h));
-    return `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?${params.toString()}`;
-  }
-
-  async function fetchInboxList(){
-    inboxLoading.hidden = false;
-    inboxEmpty.hidden = true;
-    inboxList.innerHTML = "";
-
+  function decodeBase64Url(str) {
+    if (!str) return "";
+    let base64 = str.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
     try {
-      const listData = await gmailApiFetch(
-        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=INBOX"
-      );
-      const refs = listData.messages || [];
-
-      if (!refs.length){
-        inboxLoading.hidden = true;
-        inboxEmpty.hidden = false;
-        return;
-      }
-
-      const details = await Promise.all(
-        refs.map(ref => gmailApiFetch(buildMetadataUrl(ref.id)))
-      );
-
-      details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
-      renderInboxList(details);
-    } catch (error){
-      console.error(error);
-      showToast(`Não foi possível carregar a caixa de entrada: ${error.message}`, true);
-      closeInboxModal();
-    } finally {
-      inboxLoading.hidden = true;
+      return decodeURIComponent(escape(window.atob(base64)));
+    } catch (e) {
+      return window.atob(base64);
     }
   }
 
-  function renderInboxList(messages){
-    inboxList.innerHTML = "";
+  function extractMessageBody(payload) {
+    let textBody = "";
+    let htmlBody = "";
 
-    messages.forEach(msg => {
-      const headers   = msg.payload?.headers || [];
-      const fromRaw   = getHeader(headers, "From");
-      const subject   = getHeader(headers, "Subject") || "(sem assunto)";
-      const messageId = getHeader(headers, "Message-Id");
-      const dateLabel = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
-      const fromName  = extractDisplayName(fromRaw);
-      const fromEmail = extractEmailAddress(fromRaw);
+    function walk(part) {
+      if (!part) return;
+      if (part.mimeType === "text/plain" && part.body && part.body.data) {
+        textBody = decodeBase64Url(part.body.data);
+      } else if (part.mimeType === "text/html" && part.body && part.body.data) {
+        htmlBody = decodeBase64Url(part.body.data);
+      }
+      if (part.parts) {
+        part.parts.forEach(walk);
+      }
+    }
 
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <button type="button" class="inbox-item">
-          <span class="inbox-item-top">
-            <span class="inbox-item-from">${fromName}</span>
-            <span class="inbox-item-date">${dateLabel}</span>
-          </span>
-          <span class="inbox-item-subject">${subject}</span>
-        </button>
-      `;
-
-      li.querySelector(".inbox-item").addEventListener("click", async () => {
-        const proceed = await showConfirm({
-          title: "Responder este e-mail?",
-          message: `De: ${fromName} <${fromEmail}>\nAssunto: ${subject}`,
-          confirmText: "Responder",
-          cancelText: "Voltar",
-        });
-
-        if (!proceed) return;
-
-        enterReplyMode({
-          threadId: msg.threadId,
-          messageId: messageId,
-          to: fromEmail,
-          fromName: fromName,
-          subject: subject,
-        });
-        closeInboxModal();
-      });
-
-      inboxList.appendChild(li);
-    });
-  }
-
-  /* ---------- ABA CAIXA DE ENTRADA (lista completa com anexos) ---------- */
-  function buildFullMessageUrl(id){
-    return `https://gmail.googleapis.com/gmail/v1/users/me/messages/${id}?format=full`;
+    walk(payload);
+    return textBody || htmlBody || "(E-mail sem conteúdo de texto)";
   }
 
   function extractAttachments(payload){
@@ -430,6 +385,8 @@
           filename: part.filename,
           mimeType: part.mimeType || "",
           size: (part.body && part.body.size) || 0,
+          attachmentId: part.body && part.body.attachmentId,
+          data: part.body && part.body.data
         });
       }
       (part.parts || []).forEach(walk);
@@ -442,6 +399,37 @@
     return `<svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   }
 
+  /* ---------- BAIXAR / VISUALIZAR ANEXO ---------- */
+  async function downloadAttachment(messageId, attachmentId, filename, mimeType) {
+    try {
+      showToast("Baixando anexo...");
+      const res = await gmailApiFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`
+      );
+      const base64Data = res.data.replace(/-/g, "+").replace(/_/g, "/");
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeType || "application/octet-stream" });
+      const blobUrl = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error(err);
+      showToast(`Erro ao baixar anexo: ${err.message}`, true);
+    }
+  }
+
+  /* ---------- CAIXA DE ENTRADA (LISTAGEM & LEITURA) ---------- */
   async function fetchInboxTabList(){
     if (isFetchingInboxTab) return;
     isFetchingInboxTab = true;
@@ -487,6 +475,67 @@
     }
   }
 
+  function openMailReader(msg) {
+    const headers    = msg.payload?.headers || [];
+    const fromRaw    = getHeader(headers, "From");
+    const subject    = getHeader(headers, "Subject") || "(sem assunto)";
+    const messageId  = getHeader(headers, "Message-Id");
+    const dateLabel  = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
+    const fromName   = extractDisplayName(fromRaw);
+    const fromEmail  = extractEmailAddress(fromRaw);
+    const attachments = extractAttachments(msg.payload);
+    const bodyContent = extractMessageBody(msg.payload);
+
+    readingMailContext = {
+      threadId: msg.threadId,
+      messageId: messageId,
+      to: fromEmail,
+      fromName: fromName,
+      subject: subject,
+    };
+
+    readSubject.textContent = subject;
+    readFrom.textContent = `${fromName} <${fromEmail}>`;
+    readDate.textContent = dateLabel;
+    readBody.textContent = bodyContent;
+
+    readAttachmentsList.innerHTML = "";
+    if (attachments.length > 0) {
+      readAttachmentsWrap.hidden = false;
+      attachments.forEach(att => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "inbox-download-chip";
+        btn.innerHTML = `${attachmentIconSvg()}<span>${att.filename}</span> (${formatSize(att.size)})`;
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (att.attachmentId) {
+            downloadAttachment(msg.id, att.attachmentId, att.filename, att.mimeType);
+          }
+        });
+        readAttachmentsList.appendChild(btn);
+      });
+    } else {
+      readAttachmentsWrap.hidden = true;
+    }
+
+    inboxListView.hidden = true;
+    inboxReadView.hidden = false;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  inboxReadBack.addEventListener("click", () => {
+    inboxReadView.hidden = true;
+    inboxListView.hidden = false;
+  });
+
+  inboxReadReplyBtn.addEventListener("click", () => {
+    if (!readingMailContext) return;
+    enterReplyMode(readingMailContext);
+    showComposeView();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  });
+
   function renderInboxTabList(messages){
     inboxTabList.innerHTML = "";
 
@@ -525,7 +574,14 @@
         </div>
       `;
 
-      li.querySelector(".inbox-tab-reply-button").addEventListener("click", () => {
+      // Clicar no item abre a leitura do e-mail
+      li.addEventListener("click", () => {
+        openMailReader(msg);
+      });
+
+      // Clicar direto no botão responder
+      li.querySelector(".inbox-tab-reply-button").addEventListener("click", (e) => {
+        e.stopPropagation();
         enterReplyMode({
           threadId: msg.threadId,
           messageId: messageId,
@@ -541,7 +597,94 @@
     });
   }
 
-  /* ---------- NOTIFICAÇÃO DE NOVO E-MAIL (polling) ---------- */
+  /* ---------- MODAL DE RESPOSTA RÁPIDA ---------- */
+  function openInboxModal(){
+    inboxOverlay.classList.add("is-visible");
+  }
+
+  function closeInboxModal(){
+    inboxOverlay.classList.remove("is-visible");
+  }
+
+  inboxClose.addEventListener("click", closeInboxModal);
+  inboxOverlay.addEventListener("click", (e) => {
+    if (e.target === inboxOverlay) closeInboxModal();
+  });
+
+  async function fetchInboxList(){
+    inboxLoading.hidden = false;
+    inboxEmpty.hidden = true;
+    inboxList.innerHTML = "";
+
+    try {
+      const listData = await gmailApiFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=INBOX"
+      );
+      const refs = listData.messages || [];
+
+      if (!refs.length){
+        inboxLoading.hidden = true;
+        inboxEmpty.hidden = false;
+        return;
+      }
+
+      const details = await Promise.all(
+        refs.map(ref => gmailApiFetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${ref.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date&metadataHeaders=Message-Id`))
+      );
+
+      details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
+
+      inboxList.innerHTML = "";
+      details.forEach(msg => {
+        const headers   = msg.payload?.headers || [];
+        const fromRaw   = getHeader(headers, "From");
+        const subject   = getHeader(headers, "Subject") || "(sem assunto)";
+        const messageId = getHeader(headers, "Message-Id");
+        const dateLabel = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
+        const fromName  = extractDisplayName(fromRaw);
+        const fromEmail = extractEmailAddress(fromRaw);
+
+        const li = document.createElement("li");
+        li.innerHTML = `
+          <button type="button" class="inbox-item">
+            <span class="inbox-item-top">
+              <span class="inbox-item-from">${fromName}</span>
+              <span class="inbox-item-date">${dateLabel}</span>
+            </span>
+            <span class="inbox-item-subject">${subject}</span>
+          </button>
+        `;
+
+        li.querySelector(".inbox-item").addEventListener("click", async () => {
+          enterReplyMode({
+            threadId: msg.threadId,
+            messageId: messageId,
+            to: fromEmail,
+            fromName: fromName,
+            subject: subject,
+          });
+          closeInboxModal();
+        });
+
+        inboxList.appendChild(li);
+      });
+    } catch (error){
+      console.error(error);
+      showToast(`Não foi possível carregar a caixa de entrada: ${error.message}`, true);
+      closeInboxModal();
+    } finally {
+      inboxLoading.hidden = true;
+    }
+  }
+
+  replyOpenButton.addEventListener("click", async () => {
+    const ok = await ensureAuth();
+    if (!ok) return;
+    openInboxModal();
+    await fetchInboxList();
+  });
+
+  /* ---------- NOTIFICAÇÃO DE NOVO E-MAIL ---------- */
   function showMailToast(count, latest){
     if (count === 1 && latest){
       const headers = latest.payload?.headers || [];
@@ -612,6 +755,7 @@
     }
   }
 
+  /* ---------- MODO RESPOSTA ---------- */
   function enterReplyMode(ctx){
     mode = "reply";
     replyContext = ctx;
@@ -642,13 +786,6 @@
   }
 
   replyCancelBtn.addEventListener("click", exitReplyMode);
-
-  replyOpenButton.addEventListener("click", async () => {
-    const ok = await ensureAuth();
-    if (!ok) return;
-    openInboxModal();
-    await fetchInboxList();
-  });
 
   /* ---------- CONFIRMAÇÃO MODAL ---------- */
   function showConfirm({ title, message, fileList = [], confirmText = "Sim", cancelText = "Cancelar", tone = "default" }){
@@ -775,7 +912,7 @@
     });
   }
 
-  /* ---------- NOTIFICAÇÕES ---------- */
+  /* ---------- TOASTS ---------- */
   function showToast(message, isError = false){
     toastEl.textContent = message;
     toastEl.classList.toggle("is-error", isError);
@@ -923,5 +1060,6 @@
     }
   });
 
+  showComposeView();
   validateForm();
 })();
