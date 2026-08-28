@@ -8,12 +8,13 @@
   const storeGrid     = document.getElementById("store-grid");
   const storeHint     = document.getElementById("store-hint");
   
-  // Elementos do novo campo de Destinatários
+  // Destinatários
   const recipientsContainer = document.getElementById("recipients-container");
   const recipientsChipsEl   = document.getElementById("recipients-chips");
   const toTextInput         = document.getElementById("to-text-input");
-  const toInput             = document.getElementById("to-input"); // Campo hidden para integração
+  const toInput             = document.getElementById("to-input");
   
+  // Campos do formulário
   const subjectInput  = document.getElementById("subject-input");
   const bodyInput     = document.getElementById("body-input");
   const dropzone      = document.getElementById("dropzone");
@@ -22,11 +23,13 @@
   const sendButton    = document.getElementById("send-button");
   const toastEl       = document.getElementById("toast");
 
+  // Banner e botões de resposta
   const replyOpenButton   = document.getElementById("reply-open-button");
   const replyBanner       = document.getElementById("reply-banner");
   const replyBannerDetail = document.getElementById("reply-banner-detail");
   const replyCancelBtn    = document.getElementById("reply-cancel");
 
+  // Modais e navegação
   const inboxOverlay = document.getElementById("inbox-overlay");
   const inboxClose   = document.getElementById("inbox-close");
   const inboxLoading = document.getElementById("inbox-loading");
@@ -45,12 +48,11 @@
   const inboxTabList     = document.getElementById("inbox-tab-list");
   const inboxTabSubtitle = document.getElementById("inbox-tab-subtitle");
 
-  // Elementos de Sub-navegação (Recebidos vs Rascunhos)
   const subnavInboxBtn    = document.getElementById("subnav-inbox-btn");
   const subnavDraftsBtn   = document.getElementById("subnav-drafts-btn");
   const draftsCountBadge  = document.getElementById("drafts-count-badge");
 
-  // Elementos da leitura de e-mail
+  // Leitor
   const inboxListView        = document.getElementById("inbox-list-view");
   const inboxReadView        = document.getElementById("inbox-read-view");
   const inboxReadBack        = document.getElementById("inbox-read-back");
@@ -78,7 +80,6 @@
   const successToast     = document.getElementById("success-toast");
   const successToastText = document.getElementById("success-toast-text");
 
-  // Anulação de envio
   const undoToast        = document.getElementById("undo-toast");
   const undoTimerEl      = document.getElementById("undo-timer");
   const undoSendBtn      = document.getElementById("undo-send-btn");
@@ -106,17 +107,15 @@
   let isFetchingInboxTab = false;
   const MAIL_POLL_INTERVAL_MS = 45000;
 
-  // Estado de anulação
   let pendingEmailPayload = null;
   let undoCountdownTimer = null;
   let undoSecondsRemaining = 10;
 
-  // Gerenciamento de Rascunhos Gmail
   let currentGmailDraftId = null;
   let autoSaveDraftTimeout = null;
   let isSavingDraft = false;
 
-  /* ---------- TEMA (claro/escuro) ---------- */
+  /* ---------- TEMA ---------- */
   function applyTheme(theme){
     html.setAttribute("data-theme", theme);
     localStorage.setItem("sacolao-theme", theme);
@@ -136,8 +135,9 @@
 
   initTheme();
 
-  /* ---------- GERENCIAMENTO DE DESTINATÁRIOS (CHIPS) ---------- */
+  /* ---------- GERENCIAMENTO DE DESTINATÁRIOS ---------- */
   function renderRecipients() {
+    if (!recipientsChipsEl) return;
     recipientsChipsEl.innerHTML = "";
     recipientEmails.forEach((email, index) => {
       const chip = document.createElement("span");
@@ -149,12 +149,13 @@
       recipientsChipsEl.appendChild(chip);
     });
 
-    toInput.value = recipientEmails.join(", ");
+    if (toInput) toInput.value = recipientEmails.join(", ");
     validateForm();
   }
 
   function addRecipient(rawEmail) {
-    const cleaned = rawEmail.trim().replace(/^,+|,+$/g, "");
+    if (!rawEmail) return;
+    const cleaned = String(rawEmail).trim().replace(/^,+|,+$/g, "");
     if (!cleaned) return;
 
     const splitted = cleaned.split(/[\s,;]+/);
@@ -175,42 +176,46 @@
     scheduleAutoSaveDraft();
   }
 
-  recipientsContainer.addEventListener("click", (e) => {
-    const btn = e.target.closest(".recipient-chip-remove");
-    if (btn) {
-      removeRecipient(Number(btn.dataset.index));
-      return;
-    }
-    toTextInput.focus();
-  });
+  if (recipientsContainer) {
+    recipientsContainer.addEventListener("click", (e) => {
+      const btn = e.target.closest(".recipient-chip-remove");
+      if (btn) {
+        removeRecipient(Number(btn.dataset.index));
+        return;
+      }
+      if (toTextInput) toTextInput.focus();
+    });
+  }
 
-  toTextInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === "," || e.key === ";") {
-      e.preventDefault();
+  if (toTextInput) {
+    toTextInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === "," || e.key === ";") {
+        e.preventDefault();
+        if (toTextInput.value.trim()) {
+          addRecipient(toTextInput.value);
+          toTextInput.value = "";
+        }
+      } else if (e.key === "Backspace" && !toTextInput.value && recipientEmails.length > 0) {
+        removeRecipient(recipientEmails.length - 1);
+      }
+    });
+
+    toTextInput.addEventListener("blur", () => {
       if (toTextInput.value.trim()) {
         addRecipient(toTextInput.value);
         toTextInput.value = "";
       }
-    } else if (e.key === "Backspace" && !toTextInput.value && recipientEmails.length > 0) {
-      removeRecipient(recipientEmails.length - 1);
-    }
-  });
+    });
 
-  toTextInput.addEventListener("blur", () => {
-    if (toTextInput.value.trim()) {
-      addRecipient(toTextInput.value);
-      toTextInput.value = "";
-    }
-  });
-
-  toTextInput.addEventListener("paste", (e) => {
-    e.preventDefault();
-    const text = (e.clipboardData || window.clipboardData).getData("text");
-    if (text) {
-      addRecipient(text);
-      toTextInput.value = "";
-    }
-  });
+    toTextInput.addEventListener("paste", (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData("text");
+      if (text) {
+        addRecipient(text);
+        toTextInput.value = "";
+      }
+    });
+  }
 
   /* ---------- TRANSIÇÃO DE TELAS ---------- */
   function showComposeView(){
@@ -225,7 +230,9 @@
   }
 
   function showInboxView(){
-    syncCurrentDraftToGmail();
+    if (mode !== "reply") {
+      syncCurrentDraftToGmail();
+    }
 
     currentView = "inbox";
     composeCard.hidden = true;
@@ -242,9 +249,6 @@
   }
 
   navComposeButton.addEventListener("click", () => {
-    if (mode === "reply") {
-      exitReplyMode();
-    }
     showComposeView();
   });
 
@@ -440,7 +444,6 @@
       return true;
     } catch (error){
       console.error("Falha ao atualizar status no Gmail:", error);
-      showToast(`Erro na API do Gmail: ${error.message}`, true);
       return false;
     }
   }
@@ -512,8 +515,8 @@
 
   /* ---------- RASCUNHOS DIRETAMENTE NO GMAIL API ---------- */
   function isFormDirty(){
-    const sub = subjectInput.value.trim();
-    const body = bodyInput.value.trim();
+    const sub = subjectInput ? subjectInput.value.trim() : "";
+    const body = bodyInput ? bodyInput.value.trim() : "";
     const defBody = buildDefaultBody().trim();
 
     return Boolean(recipientEmails.length > 0 || sub || (body && body !== defBody) || attachedFiles.length > 0);
@@ -534,7 +537,7 @@
   }
 
   async function syncCurrentDraftToGmail(){
-    if (!accessToken || isSavingDraft) return;
+    if (!accessToken || isSavingDraft || mode === "reply") return;
     if (!isFormDirty()) return;
 
     isSavingDraft = true;
@@ -597,6 +600,7 @@
   }
 
   function scheduleAutoSaveDraft(){
+    if (mode === "reply") return;
     clearTimeout(autoSaveDraftTimeout);
     autoSaveDraftTimeout = setTimeout(() => {
       syncCurrentDraftToGmail();
@@ -656,7 +660,6 @@
     subjectInput.value = getHeader(headers, "Subject") || "";
     bodyInput.value = extractMessageBody(msg?.payload) || buildDefaultBody();
     
-    // Reconhece a loja
     selectedStore = null;
     if (typeof STORE_EMAILS !== "undefined") {
       const currentToStr = recipientEmails.join(", ").toLowerCase();
@@ -770,11 +773,13 @@
   }
 
   function extractEmailAddress(fromHeader){
+    if (!fromHeader) return "";
     const match = fromHeader.match(/<([^>]+)>/);
     return match ? match[1] : fromHeader.trim();
   }
 
   function extractDisplayName(fromHeader){
+    if (!fromHeader) return "";
     const match = fromHeader.match(/^"?([^"<]+)"?\s*</);
     return match ? match[1].trim() : extractEmailAddress(fromHeader);
   }
@@ -837,7 +842,7 @@
     return `<svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   }
 
-  /* ---------- BAIXAR / VISUALIZAR ANEXO ---------- */
+  /* ---------- BAIXAR ANEXO ---------- */
   async function downloadAttachment(messageId, attachmentId, filename, mimeType) {
     try {
       showToast("Baixando anexo...");
@@ -989,8 +994,6 @@
   inboxReadReplyBtn.addEventListener("click", () => {
     if (!readingMailContext) return;
     enterReplyMode(readingMailContext);
-    showComposeView();
-    window.scrollTo({ top: 0, behavior: "smooth" });
   });
 
   function renderInboxTabList(messages){
@@ -1047,8 +1050,6 @@
           fromName: fromName,
           subject: subject,
         });
-        showComposeView();
-        window.scrollTo({ top: 0, behavior: "smooth" });
       });
 
       inboxTabList.appendChild(li);
@@ -1114,6 +1115,7 @@
         `;
 
         li.querySelector(".inbox-item").addEventListener("click", async () => {
+          closeInboxModal();
           enterReplyMode({
             threadId: msg.threadId,
             messageId: messageId,
@@ -1121,7 +1123,6 @@
             fromName: fromName,
             subject: subject,
           });
-          closeInboxModal();
         });
 
         inboxList.appendChild(li);
@@ -1225,19 +1226,30 @@
       renderRecipients();
     }
 
-    subjectInput.value = "";
+    let cleanSub = ctx.subject || "";
+    if (cleanSub && !cleanSub.toLowerCase().startsWith("re:")) {
+      cleanSub = `Re: ${cleanSub}`;
+    }
+    subjectInput.value = cleanSub;
     bodyInput.value = buildDefaultBody();
 
-    replyBannerDetail.textContent = `Para ${ctx.fromName} — Conversa: ${ctx.subject}`;
+    replyBannerDetail.textContent = `Para ${ctx.fromName || ctx.to} — Conversa: ${ctx.subject}`;
     replyBanner.classList.add("is-visible");
+    replyBanner.style.display = "flex";
 
+    selectedStore = null;
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
+
+    showComposeView();
     validateForm();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function exitReplyMode(){
     mode = "compose";
     replyContext = null;
     replyBanner.classList.remove("is-visible");
+    replyBanner.style.display = "none";
 
     selectedStore = null;
     [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
@@ -1245,6 +1257,7 @@
     recipientEmails = [];
     renderRecipients();
     subjectInput.value = "";
+    bodyInput.value = buildDefaultBody();
     storeHint.textContent = "Selecione a loja para preencher o destinatário automaticamente.";
 
     validateForm();
@@ -1527,10 +1540,12 @@
     currentGmailDraftId = restored.draftId;
 
     if (mode === "reply" && replyContext) {
-      replyBannerDetail.textContent = `Para ${replyContext.fromName} — Conversa: ${replyContext.subject}`;
+      replyBannerDetail.textContent = `Para ${replyContext.fromName || replyContext.to} — Conversa: ${replyContext.subject}`;
       replyBanner.classList.add("is-visible");
+      replyBanner.style.display = "flex";
     } else {
       replyBanner.classList.remove("is-visible");
+      replyBanner.style.display = "none";
       [...storeGrid.querySelectorAll(".store-chip")].forEach(c =>
         c.classList.toggle("is-active", c.dataset.store === selectedStore)
       );
@@ -1539,7 +1554,7 @@
     renderFileList();
     showComposeView();
     validateForm();
-    showToast("Envio cancelado. O rascunho continua salvo no Gmail.");
+    showToast("Envio cancelado.");
   });
 
   sendButton.addEventListener("click", async () => {
@@ -1582,7 +1597,6 @@
       replyContext: replyContext
     };
 
-    // Limpa os campos
     currentGmailDraftId = null;
     recipientEmails = [];
     renderRecipients();
@@ -1595,7 +1609,6 @@
     [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
     validateForm();
 
-    // Contagem de 10s
     undoSecondsRemaining = 10;
     undoTimerEl.textContent = undoSecondsRemaining;
     undoToast.classList.add("is-visible");
