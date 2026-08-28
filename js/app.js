@@ -27,6 +27,24 @@
   const inboxEmpty   = document.getElementById("inbox-empty");
   const inboxList    = document.getElementById("inbox-list");
 
+
+  const navComposeButton = document.getElementById("nav-compose");
+  const navInboxButton   = document.getElementById("nav-inbox");
+  const navInboxBadge = document.getElementById("nav-inbox-badge");
+  const composeCard = document.getElementById("compose-card");
+
+  const inboxTabCard = document.getElementById("inbox-tab-card");
+  const inboxTabRefresh  = document.getElementById("inbox-tab-refresh");
+  const inboxTabLoading  = document.getElementById("inbox-tab-loading");
+  const inboxTabEmpty    = document.getElementById("inbox-tab-empty");
+  const inboxTabList     = document.getElementById("inbox-tab-list");
+  const inboxTabSubtitle = document.getElementById("inbox-tab-subtitle");
+
+  const mailToast       = document.getElementById("mail-toast");
+  const mailToastTitle  = document.getElementById("mail-toast-title");
+  const mailToastDetail = document.getElementById("mail-toast-detail");
+
+
   const confirmOverlay  = document.getElementById("confirm-overlay");
   const confirmBox      = document.getElementById("confirm-box");
   const confirmTitle    = document.getElementById("confirm-title");
@@ -48,6 +66,13 @@
   let mode = "compose";      // "compose" | "reply"
   let replyContext = null;   // { threadId, messageId, to, subject }
   let onAuthSuccess = null;
+
+  let currentView = "compose";     // "compose" | "inbox"
+  let seenMessageIds = null;       // Set com ids já conhecidos (para detectar novos e-mails)
+  let mailPollTimer = null;
+  let mailToastTimer = null;
+  let isFetchingInboxTab = false;
+  const MAIL_POLL_INTERVAL_MS = 45000;
 
   /* ---------- TEMA (claro/escuro) ---------- */
   function applyTheme(theme){
