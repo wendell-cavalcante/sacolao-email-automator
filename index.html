@@ -68,10 +68,10 @@
 
   </nav>
 
-  <!-- CARD -->
+<!-- CARD -->
   <section class="card" id="compose-card">
 
-    <!-- AVISO DE MODO RESPOSTA -->
+    <!-- AVISO DE MODO RESPOSTA (RETÂNGULO NO TOPO) -->
     <div class="reply-banner" id="reply-banner">
       <svg class="reply-banner-icon" viewBox="0 0 24 24" fill="none"><path d="M9 14 4 9l5-5M4 9h9a6 6 0 0 1 6 6v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <div class="reply-banner-text">
@@ -108,7 +108,7 @@
       <p class="field-hint" id="store-hint">Selecione a loja para preencher o destinatário automaticamente.</p>
     </div>
 
-<!-- STEP 2: PARA / ASSUNTO -->
+    <!-- STEP 2: DESTINATÁRIOS -->
     <div class="field-block">
       <label class="field-label" for="to-text-input">
         <span class="field-index">2</span>
@@ -116,12 +116,21 @@
       </label>
       <div class="recipients-container" id="recipients-container">
         <div class="recipients-chips" id="recipients-chips"></div>
-        <input type="email" id="to-text-input" class="recipients-input" placeholder="Digite um e-mail e pressione Enter ou vírgula...">
+        <input type="text" id="to-text-input" class="recipients-input" placeholder="Digite um e-mail e pressione Enter ou vírgula...">
       </div>
       <input type="hidden" id="to-input">
     </div>
 
-    <!-- STEP 3: MENSAGEM -->
+    <!-- STEP 3: ASSUNTO (RECOLOCADO) -->
+    <div class="field-block">
+      <label class="field-label" for="subject-input">
+        <span class="field-index">3</span>
+        Assunto
+      </label>
+      <input type="text" id="subject-input" class="text-input" placeholder="Ex: NOTAS E CUSTOS LOJA - MERCEARIA">
+    </div>
+
+    <!-- STEP 4: MENSAGEM -->
     <div class="field-block">
       <label class="field-label" for="body-input">
         <span class="field-index">4</span>
@@ -131,7 +140,7 @@
       <textarea id="body-input" class="text-area" rows="7"></textarea>
     </div>
 
-    <!-- STEP 4: ANEXOS -->
+    <!-- STEP 5: ANEXOS -->
     <div class="field-block">
       <label class="field-label">
         <span class="field-index">5</span>
