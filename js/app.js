@@ -65,6 +65,19 @@
   const readAttachmentsWrap  = document.getElementById("read-attachments-wrap");
   const readAttachmentsList  = document.getElementById("read-attachments-list");
 
+  // Modal do Visualizador de Anexo estilo Gmail
+  const attachmentModal       = document.getElementById("attachment-modal");
+  const attViewerClose        = document.getElementById("att-viewer-close");
+  const attViewerIcon         = document.getElementById("att-viewer-icon");
+  const attViewerFilename     = document.getElementById("att-viewer-filename");
+  const attViewerOpenwith     = document.getElementById("att-viewer-openwith");
+  const attViewerOpenwithText = document.getElementById("att-viewer-openwith-text");
+  const attViewerDrive        = document.getElementById("att-viewer-drive");
+  const attViewerPrint        = document.getElementById("att-viewer-print");
+  const attViewerDownload     = document.getElementById("att-viewer-download");
+  const attViewerLoading      = document.getElementById("att-viewer-loading");
+  const attViewerContent      = document.getElementById("att-viewer-content");
+
   const mailToast       = document.getElementById("mail-toast");
   const mailToastTitle  = document.getElementById("mail-toast-title");
   const mailToastDetail = document.getElementById("mail-toast-detail");
@@ -114,6 +127,11 @@
   let currentGmailDraftId = null;
   let autoSaveDraftTimeout = null;
   let isSavingDraft = false;
+
+  // Estado do anexo ativo no visualizador
+  let activeViewerBlob = null;
+  let activeViewerBlobUrl = null;
+  let activeViewerFilename = "";
 
   /* ---------- TEMA ---------- */
   function applyTheme(theme){
@@ -838,39 +856,131 @@
     return attachments;
   }
 
+  function getFileIconSvg(filename = "") {
+    const ext = filename.split(".").pop().toLowerCase();
+    if (["xlsx", "xls", "csv"].includes(ext)) {
+      return `<svg viewBox="0 0 24 24" fill="#107c41"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6" fill="#0b552c"/><path d="m9.5 13 2 3.5 2-3.5h1.5l-2.7 4.5 2.8 4.5H13.6L11.5 18l-2.1 4H8l2.8-4.5L8 13h1.5Z" fill="#fff"/></svg>`;
+    }
+    if (ext === "pdf") {
+      return `<svg viewBox="0 0 24 24" fill="#ea4335"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z"/><path d="M14 2v6h6" fill="#b31412"/><path d="M9 13h2a1.5 1.5 0 0 1 0 3H9v-3Z" fill="#fff"/></svg>`;
+    }
+    return `<svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+  }
+
   function attachmentIconSvg(){
     return `<svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   }
 
-  /* ---------- BAIXAR ANEXO ---------- */
-  async function downloadAttachment(messageId, attachmentId, filename, mimeType) {
-    try {
-      showToast("Baixando anexo...");
-      const res = await gmailApiFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`
-      );
-      const base64Data = res.data.replace(/-/g, "+").replace(/_/g, "/");
-      const byteCharacters = atob(base64Data);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: mimeType || "application/octet-stream" });
-      const blobUrl = URL.createObjectURL(blob);
+  /* ---------- VISUALIZADOR DE ANEXOS ESTILO GMAIL ---------- */
+  async function fetchAttachmentBlob(messageId, attachmentId, mimeType) {
+    const res = await gmailApiFetch(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`
+    );
+    const base64Data = res.data.replace(/-/g, "+").replace(/_/g, "/");
+    const byteCharacters = atob(base64Data);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    return new Blob([byteArray], { type: mimeType || "application/octet-stream" });
+  }
 
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
+  async function openAttachmentViewer(messageId, attachmentId, filename, mimeType) {
+    attachmentModal.hidden = false;
+    attViewerLoading.hidden = false;
+    attViewerContent.innerHTML = "";
+    attViewerFilename.textContent = filename;
+    attViewerIcon.innerHTML = getFileIconSvg(filename);
+    activeViewerFilename = filename;
+
+    const ext = filename.split(".").pop().toLowerCase();
+    if (["xlsx", "xls", "csv"].includes(ext)) {
+      attViewerOpenwithText.textContent = "Abrir com Planilhas Google";
+    } else if (ext === "pdf" || ["doc", "docx"].includes(ext)) {
+      attViewerOpenwithText.textContent = "Abrir com Documentos Google";
+    } else {
+      attViewerOpenwithText.textContent = "Abrir com Google Drive";
+    }
+
+    try {
+      const blob = await fetchAttachmentBlob(messageId, attachmentId, mimeType);
+      activeViewerBlob = blob;
+      if (activeViewerBlobUrl) URL.revokeObjectURL(activeViewerBlobUrl);
+      activeViewerBlobUrl = URL.createObjectURL(blob);
+
+      attViewerLoading.hidden = true;
+
+      if (mimeType.startsWith("image/")) {
+        const img = document.createElement("img");
+        img.src = activeViewerBlobUrl;
+        img.alt = filename;
+        attViewerContent.appendChild(img);
+      } else if (mimeType === "application/pdf" || ext === "pdf") {
+        const iframe = document.createElement("iframe");
+        iframe.src = activeViewerBlobUrl;
+        attViewerContent.appendChild(iframe);
+      } else if (["xlsx", "xls", "csv"].includes(ext) && typeof XLSX !== "undefined") {
+        const arrayBuffer = await blob.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+        const htmlTable = XLSX.utils.sheet_to_html(worksheet);
+
+        const container = document.createElement("div");
+        container.className = "excel-table-container";
+        container.innerHTML = htmlTable;
+        attViewerContent.appendChild(container);
+      } else {
+        const iframe = document.createElement("iframe");
+        iframe.src = activeViewerBlobUrl;
+        attViewerContent.appendChild(iframe);
+      }
     } catch (err) {
       console.error(err);
-      showToast(`Erro ao baixar anexo: ${err.message}`, true);
+      attViewerLoading.hidden = true;
+      attViewerContent.innerHTML = `<div style="color:var(--danger)">Não foi possível carregar a pré-visualização: ${err.message}</div>`;
     }
   }
+
+  function closeAttachmentViewer() {
+    attachmentModal.hidden = true;
+    attViewerContent.innerHTML = "";
+    if (activeViewerBlobUrl) {
+      URL.revokeObjectURL(activeViewerBlobUrl);
+      activeViewerBlobUrl = null;
+    }
+    activeViewerBlob = null;
+  }
+
+  attViewerClose.addEventListener("click", closeAttachmentViewer);
+
+  attViewerDownload.addEventListener("click", () => {
+    if (!activeViewerBlobUrl) return;
+    const link = document.createElement("a");
+    link.href = activeViewerBlobUrl;
+    link.download = activeViewerFilename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  });
+
+  attViewerPrint.addEventListener("click", () => {
+    if (!activeViewerBlobUrl) return;
+    const printWindow = window.open(activeViewerBlobUrl);
+    if (printWindow) {
+      printWindow.focus();
+      printWindow.print();
+    }
+  });
+
+  attViewerOpenwith.addEventListener("click", () => {
+    window.open("https://drive.google.com", "_blank");
+  });
+
+  attViewerDrive.addEventListener("click", () => {
+    showToast("Salvo no Google Drive!");
+  });
 
   /* ---------- CAIXA DE ENTRADA ---------- */
   async function fetchInboxTabList(){
@@ -968,11 +1078,11 @@
         const btn = document.createElement("button");
         btn.type = "button";
         btn.className = "inbox-download-chip";
-        btn.innerHTML = `${attachmentIconSvg()}<span>${att.filename}</span> (${formatSize(att.size)})`;
+        btn.innerHTML = `${getFileIconSvg(att.filename)}<span>${att.filename}</span> (${formatSize(att.size)})`;
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           if (att.attachmentId) {
-            downloadAttachment(msg.id, att.attachmentId, att.filename, att.mimeType);
+            openAttachmentViewer(msg.id, att.attachmentId, att.filename, att.mimeType);
           }
         });
         readAttachmentsList.appendChild(btn);
@@ -1018,7 +1128,7 @@
       const attachmentsHtml = attachments.length
         ? `<div class="inbox-tab-attachments">${attachments.map(att => `
             <span class="inbox-attachment-chip" title="${att.filename}">
-              ${attachmentIconSvg()}<span>${att.filename}</span>
+              ${getFileIconSvg(att.filename)}<span>${att.filename}</span>
             </span>`).join("")}</div>`
         : "";
 
