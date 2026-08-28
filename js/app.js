@@ -110,7 +110,12 @@
     clearInboxBadge();
   }
 
-  navComposeButton.addEventListener("click", showComposeView);
+  navComposeButton.addEventListener("click", () => {
+    if (mode === "reply") {
+      exitReplyMode();
+    }
+    showComposeView();
+  });
 
   navInboxButton.addEventListener("click", async () => {
     showInboxView();
@@ -464,8 +469,6 @@
 
       details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
 
-      // Baseline: primeira vez que carregamos, não notifica sobre e-mails já existentes.
-      // Nas próximas vezes, apenas marcamos como "vistos" (já apareceram na aba).
       if (seenMessageIds === null){
         seenMessageIds = new Set(details.map(d => d.id));
       } else {
@@ -572,7 +575,6 @@
       if (!refs.length) return;
 
       if (seenMessageIds === null){
-        // Ainda não temos baseline (aba nunca foi aberta) — cria sem notificar
         seenMessageIds = new Set(refs.map(r => r.id));
         return;
       }
@@ -593,7 +595,6 @@
         fetchInboxTabList();
       }
     } catch (error){
-      // Falha silenciosa no polling para não incomodar o usuário
       console.warn("Falha ao verificar novos e-mails:", error.message);
     }
   }
@@ -616,7 +617,7 @@
     replyContext = ctx;
 
     toInput.value = ctx.to;
-    subjectInput.value = ""; // Deixa o campo assunto limpo
+    subjectInput.value = "";
     bodyInput.value = buildDefaultBody();
 
     replyBannerDetail.textContent = `Para ${ctx.fromName} — Conversa: ${ctx.subject}`;
@@ -856,7 +857,6 @@
     const ok = await ensureAuth();
     if (!ok) return;
 
-    // 1) Detector de anexo divergente
     const mismatched = findMismatchedFiles();
     if (mismatched.length > 0){
       const storeLabel = (typeof STORE_NAMES !== "undefined" && STORE_NAMES[selectedStore]) || selectedStore;
@@ -871,7 +871,6 @@
       if (!proceedAnyway) return;
     }
 
-    // 2) Confirmação final
     const confirmedSend = await showConfirm({
       title: mode === "reply" ? "Confirmar resposta" : "Confirmar envio",
       message: `Enviar este e-mail para ${toInput.value.trim()}?`,

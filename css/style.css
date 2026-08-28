@@ -718,6 +718,11 @@ html, body{
 .inbox-tab-reply-button:hover{ transform: translateY(-1px); border-color: var(--ring-gold); }
 .inbox-tab-reply-button svg{ width:14px; height:14px; color: var(--ring-gold); }
 
+/* Garante que elementos com o atributo hidden sejam realmente ocultados */
+[hidden] {
+  display: none !important;
+}
+
 /* ---------------- POP-UP DE NOVO E-MAIL ---------------- */
 .mail-toast{
   position: fixed;
