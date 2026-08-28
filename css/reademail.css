@@ -11,6 +11,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
 }
@@ -34,6 +35,43 @@
 .inbox-reader-back:hover {
   border-color: var(--ring-gold);
   transform: translateX(-2px);
+}
+
+.inbox-reader-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: .8rem;
+  cursor: pointer;
+  transition: transform .15s ease, border-color .2s ease;
+}
+
+.inbox-action-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--ring-gold);
+}
+
+.inbox-action-btn svg {
+  width: 14px;
+  height: 14px;
+  color: var(--ring-gold);
+}
+
+.inbox-action-btn.is-unread-state svg {
+  color: var(--danger);
 }
 
 .inbox-reader-header {
@@ -132,4 +170,13 @@
 
 .inbox-tab-item {
   cursor: pointer;
+}
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background-color: var(--ring-gold);
+  vertical-align: middle;
 }

@@ -44,6 +44,7 @@
   const inboxReadView        = document.getElementById("inbox-read-view");
   const inboxReadBack        = document.getElementById("inbox-read-back");
   const inboxReadReplyBtn    = document.getElementById("inbox-read-reply-btn");
+  const inboxReadUnreadBtn   = document.getElementById("inbox-read-unread-btn");
   const readSubject          = document.getElementById("read-subject");
   const readFrom             = document.getElementById("read-from");
   const readDate             = document.getElementById("read-date");
@@ -209,7 +210,7 @@
 
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: typeof GOOGLE_CLIENT_ID !== "undefined" ? GOOGLE_CLIENT_ID : "",
-      scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly",
+      scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify",
       callback: (tokenResponse) => {
         if (tokenResponse.error) {
           showToast("Erro na autenticação: " + tokenResponse.error, true);
@@ -281,6 +282,80 @@
 
     return response.json();
   }
+
+  /* ---------- LIDO / NÃO LIDO ---------- */
+  async function setMessageReadState(gmailId, isUnread){
+    try {
+      const bodyPayload = isUnread 
+        ? { addLabelIds: ["UNREAD"] } 
+        : { removeLabelIds: ["UNREAD"] };
+
+      await gmailApiFetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${gmailId}/modify`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(bodyPayload),
+        }
+      );
+      return true;
+    } catch (error){
+      console.error("Falha ao atualizar status de leitura no Gmail:", error);
+      showToast(`Erro na API do Gmail: ${error.message}`, true);
+      return false;
+    }
+  }
+
+  function setListItemUnreadState(gmailId, isUnread){
+    const li = inboxTabList.querySelector(`[data-msg-id="${gmailId}"]`);
+    if (!li) return;
+    li.classList.toggle("is-unread", isUnread);
+    const fromEl = li.querySelector(".inbox-tab-item-from");
+    if (!fromEl) return;
+    const existingDot = fromEl.querySelector(".unread-dot");
+    if (isUnread && !existingDot){
+      fromEl.insertAdjacentHTML("afterbegin", '<span class="unread-dot" aria-hidden="true"></span>');
+    } else if (!isUnread && existingDot){
+      existingDot.remove();
+    }
+  }
+
+  function updateUnreadToggleButton(isUnread){
+    inboxReadUnreadBtn.classList.toggle("is-unread-state", isUnread);
+    inboxReadUnreadBtn.title = isUnread ? "Marcar como lido" : "Marcar como não lido";
+    inboxReadUnreadBtn.innerHTML = isUnread
+      ? `<svg viewBox="0 0 24 24" fill="none"><path d="M5 13l4 4L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Marcar como lido`
+      : `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="2" fill="currentColor"/></svg> Marcar não lido`;
+  }
+
+  inboxReadUnreadBtn.addEventListener("click", async () => {
+    if (!readingMailContext) return;
+    const targetUnreadState = !readingMailContext.isUnread;
+
+    inboxReadUnreadBtn.disabled = true;
+    const ok = await setMessageReadState(readingMailContext.gmailId, targetUnreadState);
+    inboxReadUnreadBtn.disabled = false;
+    
+    if (!ok) return;
+
+    readingMailContext.isUnread = targetUnreadState;
+    if (readingMailContext.rawMsg) {
+      if (!readingMailContext.rawMsg.labelIds) {
+        readingMailContext.rawMsg.labelIds = [];
+      }
+      if (targetUnreadState) {
+        if (!readingMailContext.rawMsg.labelIds.includes("UNREAD")) {
+          readingMailContext.rawMsg.labelIds.push("UNREAD");
+        }
+      } else {
+        readingMailContext.rawMsg.labelIds = readingMailContext.rawMsg.labelIds.filter(l => l !== "UNREAD");
+      }
+    }
+
+    updateUnreadToggleButton(targetUnreadState);
+    setListItemUnreadState(readingMailContext.gmailId, targetUnreadState);
+    showToast(targetUnreadState ? "E-mail marcado como não lido." : "E-mail marcado como lido.");
+  });
 
   /* ---------- CORPO DO E-MAIL ---------- */
   function getGreeting(){
@@ -485,6 +560,7 @@
     const fromEmail  = extractEmailAddress(fromRaw);
     const attachments = extractAttachments(msg.payload);
     const bodyContent = extractMessageBody(msg.payload);
+    const wasUnread = (msg.labelIds || []).includes("UNREAD");
 
     readingMailContext = {
       threadId: msg.threadId,
@@ -492,7 +568,21 @@
       to: fromEmail,
       fromName: fromName,
       subject: subject,
+      gmailId: msg.id,
+      isUnread: wasUnread,
+      rawMsg: msg
     };
+
+    updateUnreadToggleButton(wasUnread);
+
+    // Marca automaticamente como lido ao abrir o e-mail
+    if (wasUnread){
+      msg.labelIds = (msg.labelIds || []).filter(l => l !== "UNREAD");
+      readingMailContext.isUnread = false;
+      updateUnreadToggleButton(false);
+      setListItemUnreadState(msg.id, false);
+      setMessageReadState(msg.id, false);
+    }
 
     readSubject.textContent = subject;
     readFrom.textContent = `${fromName} <${fromEmail}>`;
@@ -548,9 +638,11 @@
       const fromName   = extractDisplayName(fromRaw);
       const fromEmail  = extractEmailAddress(fromRaw);
       const attachments = extractAttachments(msg.payload);
+      const isUnread = (msg.labelIds || []).includes("UNREAD");
 
       const li = document.createElement("li");
-      li.className = "inbox-tab-item";
+      li.className = "inbox-tab-item" + (isUnread ? " is-unread" : "");
+      li.dataset.msgId = msg.id;
 
       const attachmentsHtml = attachments.length
         ? `<div class="inbox-tab-attachments">${attachments.map(att => `
@@ -561,7 +653,7 @@
 
       li.innerHTML = `
         <div class="inbox-tab-item-top">
-          <span class="inbox-tab-item-from">${fromName}</span>
+          <span class="inbox-tab-item-from">${isUnread ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}${fromName}</span>
           <span class="inbox-tab-item-date">${dateLabel}</span>
         </div>
         <div class="inbox-tab-item-subject">${subject}</div>
