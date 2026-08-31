@@ -49,6 +49,7 @@
   const inboxTabSubtitle = document.getElementById("inbox-tab-subtitle");
 
   const subnavInboxBtn    = document.getElementById("subnav-inbox-btn");
+  const subnavSentBtn     = document.getElementById("subnav-sent-btn");
   const subnavDraftsBtn   = document.getElementById("subnav-drafts-btn");
   const draftsCountBadge  = document.getElementById("drafts-count-badge");
 
@@ -59,13 +60,14 @@
   const inboxReadReplyBtn    = document.getElementById("inbox-read-reply-btn");
   const inboxReadUnreadBtn   = document.getElementById("inbox-read-unread-btn");
   const readSubject          = document.getElementById("read-subject");
-  const readFrom             = document.getElementById("read-from");
+  const readFromLabel        = document.getElementById("read-from-label");
+  const readFrom              = document.getElementById("read-from");
   const readDate             = document.getElementById("read-date");
   const readBody             = document.getElementById("read-body");
   const readAttachmentsWrap  = document.getElementById("read-attachments-wrap");
   const readAttachmentsList  = document.getElementById("read-attachments-list");
 
-  // Modal do Visualizador de Anexo estilo Gmail
+  // Modal do Visualizador estilo Google Drive
   const attachmentModal       = document.getElementById("attachment-modal");
   const attViewerClose        = document.getElementById("att-viewer-close");
   const attViewerIcon         = document.getElementById("att-viewer-icon");
@@ -113,6 +115,11 @@
   let currentView = "compose";
   let currentInboxSubTab = "inbox";
   let cachedInboxMessages = [];
+  let cachedSentMessages = [];
+
+  let sessionRefreshTimer = null;
+  const driveFileCache = new Map();
+  let activeViewerCacheKey = null;
 
   let seenMessageIds = null;
   let mailPollTimer = null;
@@ -128,7 +135,6 @@
   let autoSaveDraftTimeout = null;
   let isSavingDraft = false;
 
-  // Estado do anexo ativo no visualizador
   let activeViewerBlob = null;
   let activeViewerBlobUrl = null;
   let activeViewerFilename = "";
@@ -276,6 +282,8 @@
     if (!ok) return;
     if (currentInboxSubTab === "drafts") {
       fetchDraftsTabList();
+    } else if (currentInboxSubTab === "sent") {
+      fetchSentTabList();
     } else {
       fetchInboxTabList();
     }
@@ -286,6 +294,8 @@
     if (!ok) return;
     if (currentInboxSubTab === "drafts") {
       fetchDraftsTabList();
+    } else if (currentInboxSubTab === "sent") {
+      fetchSentTabList();
     } else {
       fetchInboxTabList();
     }
@@ -294,10 +304,11 @@
   subnavInboxBtn.addEventListener("click", async () => {
     currentInboxSubTab = "inbox";
     subnavInboxBtn.classList.add("is-active");
+    subnavSentBtn.classList.remove("is-active");
     subnavDraftsBtn.classList.remove("is-active");
     
     if (cachedInboxMessages.length > 0) {
-      renderInboxTabList(cachedInboxMessages);
+      renderInboxTabList(cachedInboxMessages, "inbox");
       inboxTabSubtitle.textContent = `${cachedInboxMessages.length} e-mail(s) recebido(s) recentemente`;
     } else {
       const ok = await ensureAuth();
@@ -305,10 +316,26 @@
     }
   });
 
+  subnavSentBtn.addEventListener("click", async () => {
+    currentInboxSubTab = "sent";
+    subnavSentBtn.classList.add("is-active");
+    subnavInboxBtn.classList.remove("is-active");
+    subnavDraftsBtn.classList.remove("is-active");
+
+    if (cachedSentMessages.length > 0) {
+      renderInboxTabList(cachedSentMessages, "sent");
+      inboxTabSubtitle.textContent = `${cachedSentMessages.length} e-mail(s) enviado(s) recentemente`;
+    } else {
+      const ok = await ensureAuth();
+      if (ok) fetchSentTabList();
+    }
+  });
+
   subnavDraftsBtn.addEventListener("click", async () => {
     currentInboxSubTab = "drafts";
     subnavDraftsBtn.classList.add("is-active");
     subnavInboxBtn.classList.remove("is-active");
+    subnavSentBtn.classList.remove("is-active");
     const ok = await ensureAuth();
     if (ok) fetchDraftsTabList();
   });
@@ -327,6 +354,23 @@
   }
 
   /* ---------- GOOGLE OAUTH2 & SESSÃO ---------- */
+  // Mantém a sessão viva enquanto a aba estiver aberta, renovando o token
+  // silenciosamente (sem popup) um pouco antes dele expirar.
+  function scheduleSilentRefresh(expiresInSeconds){
+    if (sessionRefreshTimer) {
+      clearTimeout(sessionRefreshTimer);
+      sessionRefreshTimer = null;
+    }
+    const safeExpiry = Number(expiresInSeconds) || 3500;
+    // Renova 5 minutos antes de expirar (nunca menos que 1 minuto de espera)
+    const refreshInMs = Math.max((safeExpiry - 300) * 1000, 60000);
+    sessionRefreshTimer = setTimeout(() => {
+      if (tokenClient) {
+        try { tokenClient.requestAccessToken({ prompt: "none" }); } catch (e) {}
+      }
+    }, refreshInMs);
+  }
+
   function setSessionToken(token, expiresInSeconds = 3500) {
     accessToken = token;
     const expiresAt = Date.now() + expiresInSeconds * 1000;
@@ -335,6 +379,8 @@
 
     authButton.textContent = "✓ Conectado";
     authButton.style.borderColor = "var(--leaf)";
+
+    scheduleSilentRefresh(expiresInSeconds);
   }
 
   function clearSessionToken() {
@@ -345,6 +391,11 @@
     authButton.textContent = "Login";
     authButton.style.borderColor = "";
     stopMailPolling();
+
+    if (sessionRefreshTimer) {
+      clearTimeout(sessionRefreshTimer);
+      sessionRefreshTimer = null;
+    }
   }
 
   function restoreSession() {
@@ -355,6 +406,7 @@
       accessToken = savedToken;
       authButton.textContent = "✓ Conectado";
       authButton.style.borderColor = "var(--leaf)";
+      scheduleSilentRefresh((expiresAt - Date.now()) / 1000);
       return true;
     }
     clearSessionToken();
@@ -369,14 +421,18 @@
 
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: typeof GOOGLE_CLIENT_ID !== "undefined" ? GOOGLE_CLIENT_ID : "",
-      scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify",
+      scope: "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/drive.file",
       callback: (tokenResponse) => {
         if (tokenResponse.error) {
-          showToast("Erro na autenticação: " + tokenResponse.error, true);
+          // Falha silenciosa (ex.: prompt "none" sem sessão do Google ativa) não deve incomodar o usuário
+          if (tokenResponse.error !== "immediate_failed" && tokenResponse.error !== "access_denied") {
+            showToast("Erro na autenticação: " + tokenResponse.error, true);
+          }
           return;
         }
+        const wasConnected = !!accessToken;
         setSessionToken(tokenResponse.access_token, tokenResponse.expires_in || 3599);
-        showToast("Conta Google conectada!");
+        if (!wasConnected) showToast("Conta Google conectada!");
         startMailPolling();
         updateDraftsBadge();
 
@@ -409,6 +465,17 @@
 
   window.addEventListener("load", initGoogleAuth);
 
+  // Ao voltar para a aba, garante que a sessão ainda está válida (ou renova
+  // silenciosamente), para que o usuário nunca precise clicar em Login de novo
+  // enquanto continuar logado na conta Google do navegador.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible" || !tokenClient) return;
+    const expiresAt = Number(localStorage.getItem("sacolao_token_expires") || 0);
+    if (!accessToken || Date.now() > expiresAt - 120000) {
+      try { tokenClient.requestAccessToken({ prompt: "none" }); } catch (e) {}
+    }
+  });
+
   function ensureAuth(){
     if (accessToken) return Promise.resolve(true);
     return new Promise((resolve) => {
@@ -419,6 +486,14 @@
       }
       onAuthSuccess = () => resolve(true);
       tokenClient.requestAccessToken({ prompt: "" });
+    });
+  }
+
+  function ensureDriveScope(){
+    return new Promise((resolve) => {
+      if (!tokenClient) { resolve(false); return; }
+      onAuthSuccess = () => resolve(true);
+      tokenClient.requestAccessToken({ prompt: "consent" });
     });
   }
 
@@ -638,7 +713,7 @@
       if (!drafts.length){
         inboxTabList.innerHTML = "";
         inboxTabLoading.hidden = true;
-        inboxTabEmpty.textContent = "Nenhum rascunho salvo no Gmail.";
+        inboxTabEmpty.textContent = "Nenhum e-mail encontrado em Rascunhos.";
         inboxTabEmpty.hidden = false;
         inboxTabSubtitle.textContent = "0 rascunho(s)";
         draftsCountBadge.hidden = true;
@@ -847,6 +922,7 @@
           mimeType: part.mimeType || "",
           size: (part.body && part.body.size) || 0,
           attachmentId: part.body && part.body.attachmentId,
+          partId: part.partId || "0.1",
           data: part.body && part.body.data
         });
       }
@@ -871,7 +947,7 @@
     return `<svg viewBox="0 0 24 24" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M14 2v6h6" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
   }
 
-  /* ---------- VISUALIZADOR DE ANEXOS ESTILO GMAIL ---------- */
+  /* ---------- VISUALIZADOR INTERNO ESTILO GOOGLE DRIVE ---------- */
   async function fetchAttachmentBlob(messageId, attachmentId, mimeType) {
     const res = await gmailApiFetch(
       `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`
@@ -886,6 +962,151 @@
     return new Blob([byteArray], { type: mimeType || "application/octet-stream" });
   }
 
+  function triggerFileDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  /* ---------- ENVIO DE ANEXOS PARA O GOOGLE DRIVE (VISUALIZAÇÃO/IMPRESSÃO NATIVA) ---------- */
+  function blobToBase64(blob){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function uploadAttachmentToDrive(blob, filename, mimeType, allowRetry = true) {
+    const metadata = { name: filename, mimeType: mimeType || "application/octet-stream" };
+    const boundary = "sacolao_drive_" + Math.random().toString(36).slice(2);
+    const delimiter = `\r\n--${boundary}\r\n`;
+    const closeDelim = `\r\n--${boundary}--`;
+    const base64Data = await blobToBase64(blob);
+
+    const multipartBody =
+      delimiter +
+      "Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+      JSON.stringify(metadata) +
+      delimiter +
+      `Content-Type: ${metadata.mimeType}\r\n` +
+      "Content-Transfer-Encoding: base64\r\n\r\n" +
+      base64Data +
+      closeDelim;
+
+    const response = await fetch(
+      "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/related; boundary="${boundary}"`,
+        },
+        body: multipartBody,
+      }
+    );
+
+    if ((response.status === 401 || response.status === 403) && allowRetry) {
+      const reAuthed = await ensureDriveScope();
+      if (reAuthed) return uploadAttachmentToDrive(blob, filename, mimeType, false);
+    }
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error?.message || "Falha ao enviar o arquivo para o Google Drive.");
+    }
+
+    return response.json();
+  }
+
+  async function getOrUploadDriveFile(){
+    if (!activeViewerBlob || !activeViewerCacheKey) return null;
+    let fileInfo = driveFileCache.get(activeViewerCacheKey);
+    if (fileInfo) return fileInfo;
+    fileInfo = await uploadAttachmentToDrive(activeViewerBlob, activeViewerFilename, activeViewerBlob.type);
+    driveFileCache.set(activeViewerCacheKey, fileInfo);
+    return fileInfo;
+  }
+
+  /* ---------- IMPRESSÃO MODERNA (TELA NATIVA DO NAVEGADOR COM PREVIEW) ---------- */
+  function printHtmlContent(title, htmlContent) {
+    const existingFrame = document.getElementById("print-iframe");
+    if (existingFrame) existingFrame.remove();
+
+    const iframe = document.createElement("iframe");
+    iframe.id = "print-iframe";
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "none";
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow.document;
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>${title}</title>
+          <style>
+            @page {
+              size: auto;
+              margin: 12mm 15mm;
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+              color: #000;
+              margin: 0;
+              padding: 0;
+              background: #fff;
+            }
+            table {
+              border-collapse: collapse;
+              width: 100%;
+              font-size: 11px;
+            }
+            th, td {
+              border: 1px solid #777;
+              padding: 5px 8px;
+              text-align: left;
+            }
+            th {
+              background-color: #e8eaed !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+              font-weight: 700;
+            }
+            .row-num {
+              width: 32px;
+              text-align: center;
+              background-color: #f1f3f4 !important;
+              font-weight: 600;
+            }
+          </style>
+        </head>
+        <body>
+          ${htmlContent}
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    iframe.contentWindow.focus();
+    setTimeout(() => {
+      iframe.contentWindow.print();
+      setTimeout(() => iframe.remove(), 2000);
+    }, 250);
+  }
+
   async function openAttachmentViewer(messageId, attachmentId, filename, mimeType) {
     attachmentModal.hidden = false;
     attViewerLoading.hidden = false;
@@ -893,8 +1114,10 @@
     attViewerFilename.textContent = filename;
     attViewerIcon.innerHTML = getFileIconSvg(filename);
     activeViewerFilename = filename;
+    activeViewerCacheKey = `${messageId}:${attachmentId}`;
 
     const ext = filename.split(".").pop().toLowerCase();
+
     if (["xlsx", "xls", "csv"].includes(ext)) {
       attViewerOpenwithText.textContent = "Abrir com Planilhas Google";
     } else if (ext === "pdf" || ["doc", "docx"].includes(ext)) {
@@ -911,35 +1134,98 @@
 
       attViewerLoading.hidden = true;
 
-      if (mimeType.startsWith("image/")) {
+      if (mimeType.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) {
         const img = document.createElement("img");
         img.src = activeViewerBlobUrl;
         img.alt = filename;
+        img.className = "drive-preview-image";
         attViewerContent.appendChild(img);
       } else if (mimeType === "application/pdf" || ext === "pdf") {
-        const iframe = document.createElement("iframe");
-        iframe.src = activeViewerBlobUrl;
-        attViewerContent.appendChild(iframe);
+        const pdfViewer = document.createElement("object");
+        pdfViewer.data = `${activeViewerBlobUrl}#toolbar=0&navpanes=0&scrollbar=1`;
+        pdfViewer.type = "application/pdf";
+        pdfViewer.className = "drive-preview-pdf";
+        pdfViewer.innerHTML = `<iframe src="${activeViewerBlobUrl}" class="drive-preview-pdf"></iframe>`;
+        attViewerContent.appendChild(pdfViewer);
       } else if (["xlsx", "xls", "csv"].includes(ext) && typeof XLSX !== "undefined") {
         const arrayBuffer = await blob.arrayBuffer();
         const workbook = XLSX.read(arrayBuffer, { type: "array" });
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const htmlTable = XLSX.utils.sheet_to_html(worksheet);
 
         const container = document.createElement("div");
-        container.className = "excel-table-container";
-        container.innerHTML = htmlTable;
+        container.className = "google-sheet-viewer";
+
+        const tableWrap = document.createElement("div");
+        tableWrap.className = "google-sheet-table-wrap";
+
+        function renderSheet(sheetName) {
+          const worksheet = workbook.Sheets[sheetName];
+          const data = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+
+          if (!data || !data.length) {
+            tableWrap.innerHTML = '<div class="sheet-empty-state">(Planilha sem dados nesta aba)</div>';
+            return;
+          }
+
+          let maxCols = 0;
+          data.forEach(row => { if (row.length > maxCols) maxCols = row.length; });
+
+          let tableHtml = '<table class="google-sheet-table"><thead><tr><th class="row-num"></th>';
+          for (let c = 0; c < maxCols; c++) {
+            let colName = "";
+            let num = c;
+            while (num >= 0) {
+              colName = String.fromCharCode((num % 26) + 65) + colName;
+              num = Math.floor(num / 26) - 1;
+            }
+            tableHtml += `<th>${colName}</th>`;
+          }
+          tableHtml += '</tr></thead><tbody>';
+
+          data.forEach((row, rIdx) => {
+            tableHtml += `<tr><th class="row-num">${rIdx + 1}</th>`;
+            for (let c = 0; c < maxCols; c++) {
+              const cellVal = row[c] !== undefined ? row[c] : "";
+              tableHtml += `<td>${cellVal}</td>`;
+            }
+            tableHtml += '</tr>';
+          });
+
+          tableHtml += '</tbody></table>';
+          tableWrap.innerHTML = tableHtml;
+        }
+
+        renderSheet(workbook.SheetNames[0]);
+        container.appendChild(tableWrap);
+
+        if (workbook.SheetNames.length > 0) {
+          const tabsBar = document.createElement("div");
+          tabsBar.className = "google-sheet-tabs";
+          workbook.SheetNames.forEach((name, idx) => {
+            const tabBtn = document.createElement("button");
+            tabBtn.type = "button";
+            tabBtn.className = `google-sheet-tab-item ${idx === 0 ? "is-active" : ""}`;
+            tabBtn.textContent = name;
+            tabBtn.addEventListener("click", () => {
+              tabsBar.querySelectorAll(".google-sheet-tab-item").forEach(b => b.classList.remove("is-active"));
+              tabBtn.classList.add("is-active");
+              renderSheet(name);
+            });
+            tabsBar.appendChild(tabBtn);
+          });
+          container.appendChild(tabsBar);
+        }
+
         attViewerContent.appendChild(container);
       } else {
         const iframe = document.createElement("iframe");
         iframe.src = activeViewerBlobUrl;
+        iframe.className = "drive-preview-pdf";
         attViewerContent.appendChild(iframe);
       }
     } catch (err) {
       console.error(err);
       attViewerLoading.hidden = true;
-      attViewerContent.innerHTML = `<div style="color:var(--danger)">Não foi possível carregar a pré-visualização: ${err.message}</div>`;
+      attViewerContent.innerHTML = `<div style="color:var(--danger); padding:20px;">Não foi possível carregar a pré-visualização: ${err.message}</div>`;
     }
   }
 
@@ -955,31 +1241,97 @@
 
   attViewerClose.addEventListener("click", closeAttachmentViewer);
 
-  attViewerDownload.addEventListener("click", () => {
-    if (!activeViewerBlobUrl) return;
-    const link = document.createElement("a");
-    link.href = activeViewerBlobUrl;
-    link.download = activeViewerFilename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  });
-
-  attViewerPrint.addEventListener("click", () => {
-    if (!activeViewerBlobUrl) return;
-    const printWindow = window.open(activeViewerBlobUrl);
-    if (printWindow) {
-      printWindow.focus();
-      printWindow.print();
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !attachmentModal.hidden) {
+      closeAttachmentViewer();
     }
   });
 
-  attViewerOpenwith.addEventListener("click", () => {
-    window.open("https://drive.google.com", "_blank");
+  attViewerDownload.addEventListener("click", () => {
+    if (!activeViewerBlob) return;
+    triggerFileDownload(activeViewerBlob, activeViewerFilename);
   });
 
-  attViewerDrive.addEventListener("click", () => {
-    showToast("Salvo no Google Drive!");
+  attViewerPrint.addEventListener("click", () => {
+    const ext = activeViewerFilename.split(".").pop().toLowerCase();
+
+    // 1. Planilhas Excel / CSV
+    if (["xlsx", "xls", "csv"].includes(ext)) {
+      const tableWrap = attViewerContent.querySelector(".google-sheet-table-wrap");
+      if (tableWrap) {
+        printHtmlContent(activeViewerFilename, tableWrap.innerHTML);
+        return;
+      }
+    }
+
+    // 2. Imagens
+    if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) {
+      const imgHtml = `<div style="display:flex;justify-content:center;"><img src="${activeViewerBlobUrl}" style="max-width:100%;height:auto;" /></div>`;
+      printHtmlContent(activeViewerFilename, imgHtml);
+      return;
+    }
+
+    // 3. Documentos PDF
+    if (ext === "pdf") {
+      const existingFrame = document.getElementById("print-iframe");
+      if (existingFrame) existingFrame.remove();
+
+      const iframe = document.createElement("iframe");
+      iframe.id = "print-iframe";
+      iframe.style.position = "fixed";
+      iframe.style.right = "0";
+      iframe.style.bottom = "0";
+      iframe.style.width = "0";
+      iframe.style.height = "0";
+      iframe.style.border = "none";
+      iframe.src = activeViewerBlobUrl;
+
+      iframe.onload = () => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(() => iframe.remove(), 2000);
+      };
+
+      document.body.appendChild(iframe);
+    }
+  });
+
+  attViewerOpenwith.addEventListener("click", async () => {
+    if (!activeViewerBlob) return;
+    const ok = await ensureAuth();
+    if (!ok) return;
+
+    const originalLabel = attViewerOpenwithText.textContent;
+    attViewerOpenwith.disabled = true;
+    attViewerOpenwithText.textContent = "Enviando para o Google Drive...";
+
+    try {
+      const fileInfo = await getOrUploadDriveFile();
+      if (fileInfo && fileInfo.id) {
+        window.open(fileInfo.webViewLink || `https://drive.google.com/file/d/${fileInfo.id}/view`, "_blank");
+      }
+    } catch (err) {
+      console.error(err);
+      showToast("Erro ao abrir no Google Drive: " + err.message, true);
+    } finally {
+      attViewerOpenwithText.textContent = originalLabel;
+      attViewerOpenwith.disabled = false;
+    }
+  });
+
+  attViewerDrive.addEventListener("click", async () => {
+    if (!activeViewerBlob) return;
+    const ok = await ensureAuth();
+    if (!ok) return;
+
+    try {
+      showToast("Enviando para o Google Drive...");
+      await getOrUploadDriveFile();
+      showSuccessToast("Arquivo salvo no Google Drive!");
+    } catch (err) {
+      console.error(err);
+      showToast("Erro ao salvar no Drive: " + err.message, true);
+    }
   });
 
   /* ---------- CAIXA DE ENTRADA ---------- */
@@ -1033,59 +1385,146 @@
     }
   }
 
-  function openMailReader(msg) {
-    const headers    = msg.payload?.headers || [];
-    const fromRaw    = getHeader(headers, "From");
-    const subject    = getHeader(headers, "Subject") || "(sem assunto)";
-    const messageId  = getHeader(headers, "Message-Id");
-    const dateLabel  = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
-    const fromName   = extractDisplayName(fromRaw);
-    const fromEmail  = extractEmailAddress(fromRaw);
+  /* ---------- E-MAILS ENVIADOS ---------- */
+  async function fetchSentTabList(){
+    if (isFetchingInboxTab) return;
+    isFetchingInboxTab = true;
+
+    inboxTabLoading.hidden = false;
+    inboxTabEmpty.hidden = true;
+    inboxTabRefresh.classList.add("is-spinning");
+
+    try {
+      const listData = await gmailApiFetch(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages?maxResults=20&labelIds=SENT"
+      );
+      const refs = listData.messages || [];
+
+      if (!refs.length){
+        cachedSentMessages = [];
+        inboxTabList.innerHTML = "";
+        inboxTabLoading.hidden = true;
+        inboxTabEmpty.textContent = "Nenhum e-mail enviado encontrado.";
+        inboxTabEmpty.hidden = false;
+        return;
+      }
+
+      const details = await Promise.all(
+        refs.map(ref => gmailApiFetch(buildFullMessageUrl(ref.id)))
+      );
+
+      details.sort((a, b) => Number(b.internalDate) - Number(a.internalDate));
+      cachedSentMessages = details;
+
+      if (currentInboxSubTab === "sent") {
+        renderInboxTabList(details, "sent");
+        inboxTabSubtitle.textContent = `${details.length} e-mail(s) enviado(s) recentemente`;
+      }
+    } catch (error){
+      console.error(error);
+      showToast(`Não foi possível carregar os e-mails enviados: ${error.message}`, true);
+    } finally {
+      inboxTabLoading.hidden = true;
+      inboxTabRefresh.classList.remove("is-spinning");
+      isFetchingInboxTab = false;
+    }
+  }
+
+  function openMailReader(msg, viewType = "inbox") {
+    const isSent      = viewType === "sent";
+    const headers     = msg.payload?.headers || [];
+    const contactRaw  = isSent ? getHeader(headers, "To") : getHeader(headers, "From");
+    const subject     = getHeader(headers, "Subject") || "(sem assunto)";
+    const messageId   = getHeader(headers, "Message-Id");
+    const dateLabel   = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
+    const contactName = extractDisplayName(contactRaw) || extractEmailAddress(contactRaw);
+    const contactEmail= extractEmailAddress(contactRaw);
     const attachments = extractAttachments(msg.payload);
     const bodyContent = extractMessageBody(msg.payload);
-    const wasUnread = (msg.labelIds || []).includes("UNREAD");
+    const wasUnread   = !isSent && (msg.labelIds || []).includes("UNREAD");
 
     readingMailContext = {
       threadId: msg.threadId,
       messageId: messageId,
-      to: fromEmail,
-      fromName: fromName,
+      to: contactEmail,
+      fromName: contactName,
       subject: subject,
       gmailId: msg.id,
       isUnread: wasUnread,
-      rawMsg: msg
+      rawMsg: msg,
+      viewType: viewType
     };
 
-    updateUnreadToggleButton(wasUnread);
+    if (readFromLabel) readFromLabel.textContent = isSent ? "Para:" : "De:";
+    inboxReadUnreadBtn.style.display = isSent ? "none" : "";
 
-    if (wasUnread){
-      msg.labelIds = (msg.labelIds || []).filter(l => l !== "UNREAD");
-      readingMailContext.isUnread = false;
-      updateUnreadToggleButton(false);
-      setListItemUnreadState(msg.id, false);
-      setMessageReadState(msg.id, false);
+    if (!isSent) {
+      updateUnreadToggleButton(wasUnread);
+
+      if (wasUnread){
+        msg.labelIds = (msg.labelIds || []).filter(l => l !== "UNREAD");
+        readingMailContext.isUnread = false;
+        updateUnreadToggleButton(false);
+        setListItemUnreadState(msg.id, false);
+        setMessageReadState(msg.id, false);
+      }
     }
 
     readSubject.textContent = subject;
-    readFrom.textContent = `${fromName} <${fromEmail}>`;
+    readFrom.textContent = `${contactName} <${contactEmail}>`;
     readDate.textContent = dateLabel;
     readBody.textContent = bodyContent || "(E-mail sem conteúdo de texto)";
 
     readAttachmentsList.innerHTML = "";
     if (attachments.length > 0) {
       readAttachmentsWrap.hidden = false;
+      
       attachments.forEach(att => {
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "inbox-download-chip";
-        btn.innerHTML = `${getFileIconSvg(att.filename)}<span>${att.filename}</span> (${formatSize(att.size)})`;
-        btn.addEventListener("click", (e) => {
-          e.stopPropagation();
+        const card = document.createElement("div");
+        card.className = "inbox-attachment-card";
+
+        card.innerHTML = `
+          <div class="att-card-left" title="Abrir pré-visualização">
+            <span class="att-card-icon">${getFileIconSvg(att.filename)}</span>
+            <div class="att-card-meta">
+              <strong class="att-card-title">${att.filename}</strong>
+              <span class="att-card-size">${formatSize(att.size)}</span>
+            </div>
+          </div>
+          <div class="att-card-actions">
+            <button type="button" class="att-action-btn btn-view" title="Visualizar">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/></svg>
+            </button>
+            <button type="button" class="att-action-btn btn-dl" title="Fazer o download">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V3M12 15l-4-4M12 15l4-4M4 21h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+        `;
+
+        const handleOpen = () => {
           if (att.attachmentId) {
             openAttachmentViewer(msg.id, att.attachmentId, att.filename, att.mimeType);
           }
+        };
+
+        card.querySelector(".att-card-left").addEventListener("click", handleOpen);
+        card.querySelector(".btn-view").addEventListener("click", (e) => {
+          e.stopPropagation();
+          handleOpen();
         });
-        readAttachmentsList.appendChild(btn);
+
+        card.querySelector(".btn-dl").addEventListener("click", async (e) => {
+          e.stopPropagation();
+          try {
+            showToast("Baixando arquivo...");
+            const blob = await fetchAttachmentBlob(msg.id, att.attachmentId, att.mimeType);
+            triggerFileDownload(blob, att.filename);
+          } catch (err) {
+            showToast("Erro ao baixar anexo: " + err.message, true);
+          }
+        });
+
+        readAttachmentsList.appendChild(card);
       });
     } else {
       readAttachmentsWrap.hidden = true;
@@ -1106,20 +1545,21 @@
     enterReplyMode(readingMailContext);
   });
 
-  function renderInboxTabList(messages){
+  function renderInboxTabList(messages, viewType = "inbox"){
+    const isSent = viewType === "sent";
     inboxTabList.innerHTML = "";
     inboxTabEmpty.hidden = true;
 
     messages.forEach(msg => {
       const headers    = msg.payload?.headers || [];
-      const fromRaw    = getHeader(headers, "From");
+      const contactRaw = isSent ? getHeader(headers, "To") : getHeader(headers, "From");
       const subject    = getHeader(headers, "Subject") || "(sem assunto)";
       const messageId  = getHeader(headers, "Message-Id");
       const dateLabel  = formatEmailDate(msg.internalDate, getHeader(headers, "Date"));
-      const fromName   = extractDisplayName(fromRaw);
-      const fromEmail  = extractEmailAddress(fromRaw);
+      const contactName  = extractDisplayName(contactRaw) || extractEmailAddress(contactRaw);
+      const contactEmail = extractEmailAddress(contactRaw);
       const attachments = extractAttachments(msg.payload);
-      const isUnread = (msg.labelIds || []).includes("UNREAD");
+      const isUnread = !isSent && (msg.labelIds || []).includes("UNREAD");
 
       const li = document.createElement("li");
       li.className = "inbox-tab-item" + (isUnread ? " is-unread" : "");
@@ -1134,7 +1574,7 @@
 
       li.innerHTML = `
         <div class="inbox-tab-item-top">
-          <span class="inbox-tab-item-from">${isUnread ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}${fromName}</span>
+          <span class="inbox-tab-item-from">${isUnread ? '<span class="unread-dot" aria-hidden="true"></span>' : ""}${isSent ? `Para: ${contactName}` : contactName}</span>
           <span class="inbox-tab-item-date">${dateLabel}</span>
         </div>
         <div class="inbox-tab-item-subject">${subject}</div>
@@ -1148,7 +1588,7 @@
       `;
 
       li.addEventListener("click", () => {
-        openMailReader(msg);
+        openMailReader(msg, viewType);
       });
 
       li.querySelector(".inbox-tab-reply-button").addEventListener("click", (e) => {
@@ -1156,8 +1596,8 @@
         enterReplyMode({
           threadId: msg.threadId,
           messageId: messageId,
-          to: fromEmail,
-          fromName: fromName,
+          to: contactEmail,
+          fromName: contactName,
           subject: subject,
         });
       });
@@ -1416,7 +1856,7 @@
     });
   }
 
-  /* ---------- ANEXOS ---------- */
+  /* ---------- ANEXOS (FORMULÁRIO DE ENVIO) ---------- */
   function formatSize(bytes){
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
