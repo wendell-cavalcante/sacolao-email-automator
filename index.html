@@ -10,8 +10,8 @@
 <link rel="stylesheet" href="css/style.css">
 <!-- SDK do Google Identity Services -->
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<!-- SheetJS para renderizar planilhas Excel/CSV -->
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- Leitor de Planilhas Excel (.xlsx / .xls / .csv) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -185,6 +185,9 @@
             <button type="button" class="inbox-subnav-btn is-active" id="subnav-inbox-btn">
               Recebidos
             </button>
+            <button type="button" class="inbox-subnav-btn" id="subnav-sent-btn">
+              Enviados
+            </button>
             <button type="button" class="inbox-subnav-btn" id="subnav-drafts-btn">
               Rascunhos
               <span class="drafts-badge" id="drafts-count-badge" hidden>0</span>
@@ -224,7 +227,7 @@
       <div class="inbox-reader-header">
         <h3 class="inbox-reader-subject" id="read-subject"></h3>
         <div class="inbox-reader-meta">
-          <span>De: <strong id="read-from"></strong></span>
+          <span><span id="read-from-label">De:</span> <strong id="read-from"></strong></span>
           <span>Data: <span id="read-date"></span></span>
         </div>
       </div>
@@ -247,7 +250,7 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- POP-UP DE DESFAZER / ANULAR ENVIO (canto inferior esquerdo) -->
+<!-- POP-UP DE DESFAZER / ANULAR ENVIO -->
 <div class="undo-toast" id="undo-toast">
   <div class="undo-toast-content">
     <span class="undo-toast-text">
@@ -257,13 +260,13 @@
   </div>
 </div>
 
-<!-- POP-UP VERDE DE SUCESSO (canto inferior direito) -->
+<!-- POP-UP VERDE DE SUCESSO -->
 <div class="success-toast" id="success-toast">
   <svg class="success-toast-icon" viewBox="0 0 24 24" fill="none"><path d="M5 12.5 9.5 17 19 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
   <span id="success-toast-text">E-mail enviado com sucesso!</span>
 </div>
 
-<!-- POP-UP DE NOVO E-MAIL RECEBIDO (canto inferior direito) -->
+<!-- POP-UP DE NOVO E-MAIL RECEBIDO -->
 <button type="button" class="mail-toast" id="mail-toast">
   <svg class="mail-toast-icon" viewBox="0 0 24 24" fill="none">
     <path d="M4.5 6h15a1.5 1.5 0 0 1 .75.21l-8.25 6.29L3.75 6.21A1.5 1.5 0 0 1 4.5 6Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -275,7 +278,7 @@
   </span>
 </button>
 
-<!-- MODAL: CAIXA DE ENTRADA (para responder) -->
+<!-- MODAL: CAIXA DE ENTRADA -->
 <div class="modal-overlay" id="inbox-overlay">
   <div class="modal-box modal-box-lg">
     <div class="modal-header">
@@ -289,7 +292,7 @@
   </div>
 </div>
 
-<!-- MODAL: CONFIRMAÇÃO (genérico) -->
+<!-- MODAL: CONFIRMAÇÃO -->
 <div class="modal-overlay" id="confirm-overlay">
   <div class="modal-box modal-box-confirm" id="confirm-box">
     <h3 id="confirm-title"></h3>
@@ -302,7 +305,7 @@
   </div>
 </div>
 
-<!-- MODAL DE PRÉ-VISUALIZAÇÃO DE ANEXO (ESTILO GMAIL) -->
+<!-- MODAL DE PRÉ-VISUALIZAÇÃO DE ANEXO (ESTILO GMAIL OFICIAL) -->
 <div class="attachment-modal" id="attachment-modal" hidden>
   <header class="att-viewer-header">
     <div class="att-viewer-left">
@@ -322,7 +325,7 @@
       </button>
     </div>
 
-    <div class="att-viewer-right">
+    <div class="att-viewer-right" id="att-viewer-actions">
       <button type="button" class="att-viewer-btn" id="att-viewer-drive" title="Adicionar atalho ao Google Drive">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v12M12 4l-4 4M12 4l4 4M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
@@ -331,6 +334,9 @@
       </button>
       <button type="button" class="att-viewer-btn" id="att-viewer-download" title="Fazer download">
         <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V3M12 15l-4-4M12 15l4-4M4 21h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <button type="button" class="att-viewer-btn" title="Mais opções">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="6" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="18" r="1.5" fill="currentColor"/></svg>
       </button>
     </div>
   </header>
