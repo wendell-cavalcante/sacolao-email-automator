@@ -227,3 +227,17 @@
   color: var(--text-faint);
   font-size: 0.82rem;
 }
+
+/* ---------------- CATEGORIAS DO ASSUNTO ---------------- */
+.category-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.category-grid[hidden] { display: none; }
+
+.category-chip {
+  padding: 9px 12px;
+  font-size: 0.82rem;
+}

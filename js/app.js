@@ -99,7 +99,9 @@
   const undoTimerEl      = document.getElementById("undo-timer");
   const undoSendBtn      = document.getElementById("undo-send-btn");
 
+  const categoryGrid  = document.getElementById("category-grid");
   let selectedStore = null;
+  let selectedCategory = null;
   let recipientEmails = [];
   let attachedFiles = [];
   let toastTimer = null;
@@ -767,6 +769,8 @@
     [...storeGrid.querySelectorAll(".store-chip")].forEach(c =>
       c.classList.toggle("is-active", c.dataset.store === selectedStore)
     );
+    selectedCategory = detectCategoryFromSubject(subjectInput.value);
+    syncCategoryChips();
 
     showComposeView();
     validateForm();
@@ -848,6 +852,49 @@
     storeHint.textContent = email
       ? `Destinatários da loja ${name} adicionados.`
       : `Cadastre o e-mail da loja "${name}" em js/config.js.`;
+
+    if (selectedCategory) subjectInput.value = buildSubject();
+
+    validateForm();
+    scheduleAutoSaveDraft();
+  });
+
+  /* ---------- CATEGORIA / ASSUNTO AUTOMÁTICO ---------- */
+  function buildSubject(){
+    const storeName = selectedStore
+      ? ((typeof STORE_SUBJECT_NAMES !== "undefined" && STORE_SUBJECT_NAMES[selectedStore]) || String(selectedStore).toUpperCase())
+      : "";
+    const start = storeName ? `NOTAS E CUSTOS ${storeName}` : "NOTAS E CUSTOS";
+    return selectedCategory ? `${start} - ${selectedCategory}` : start;
+  }
+
+  function syncCategoryChips(){
+    [...categoryGrid.querySelectorAll(".category-chip")].forEach(c =>
+      c.classList.toggle("is-active", c.dataset.category === selectedCategory)
+    );
+  }
+
+  function resetCategory(){
+    selectedCategory = null;
+    syncCategoryChips();
+  }
+
+  function detectCategoryFromSubject(subject){
+    const up = String(subject || "").toUpperCase().trim();
+    const chip = [...categoryGrid.querySelectorAll(".category-chip")]
+      .find(c => up.endsWith(`- ${c.dataset.category}`));
+    return chip ? chip.dataset.category : null;
+  }
+
+  categoryGrid.addEventListener("click", (e) => {
+    const chip = e.target.closest(".category-chip");
+    if (!chip || mode === "reply") return;
+
+    selectedCategory = chip.dataset.category;
+    syncCategoryChips();
+
+    subjectInput.value = buildSubject();
+    if (!selectedStore) showToast("Selecione a loja para completar o assunto.");
 
     validateForm();
     scheduleAutoSaveDraft();
@@ -1788,7 +1835,7 @@
     replyBanner.style.display = "flex";
 
     selectedStore = null;
-    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active")); resetCategory();
 
     showComposeView();
     validateForm();
@@ -1802,7 +1849,7 @@
     replyBanner.style.display = "none";
 
     selectedStore = null;
-    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active")); resetCategory();
 
     recipientEmails = [];
     renderRecipients();
@@ -1923,6 +1970,7 @@
 
   /* ---------- VALIDAÇÃO ---------- */
   function validateForm(){
+    categoryGrid.hidden = (mode === "reply");
     const ok = Boolean(recipientEmails.length > 0 && subjectInput.value.trim());
     sendButton.disabled = !ok || Boolean(pendingEmailPayload);
   }
@@ -2085,6 +2133,8 @@
     bodyInput.value = restored.body;
     attachedFiles = [...restored.files];
     selectedStore = restored.selectedStore;
+    selectedCategory = detectCategoryFromSubject(restored.subject);
+    syncCategoryChips();
     mode = restored.mode;
     replyContext = restored.replyContext;
     currentGmailDraftId = restored.draftId;
@@ -2156,7 +2206,7 @@
     subjectInput.value = "";
     bodyInput.value = buildDefaultBody();
     selectedStore = null;
-    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active"));
+    [...storeGrid.querySelectorAll(".store-chip")].forEach(c => c.classList.remove("is-active")); resetCategory();
     validateForm();
 
     undoSecondsRemaining = 10;
