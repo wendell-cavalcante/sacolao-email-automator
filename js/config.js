@@ -26,3 +26,11 @@ const STORE_KEYWORDS = {
   ce:       ["ce", "campos", "eliseos", "elíseos", "c.e", "c.e."],
   perdizes: ["perdizes", "perdi", "perd"],
 };
+
+// Nome da loja como aparece no ASSUNTO do e-mail (ex.: NOTAS E CUSTOS LAPA - MERCEARIA)
+const STORE_SUBJECT_NAMES = {
+  lapa:     "LAPA",
+  hig:      "HIG",
+  ce:       "C.E",
+  perdizes: "PERDIZES",
+};
